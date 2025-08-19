@@ -1,0 +1,5 @@
+data/
+test/
+app/
+crawling/
+spark_jobs/
