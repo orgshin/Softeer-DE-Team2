@@ -1,0 +1,5 @@
+# crawling
+requests
+beautifulsoup4
+PyYAML
+pydantic

@@ -1,0 +1,60 @@
+general:
+  out_json: "data/out/official_fee/gongimnara.json"
+  log_file: "data/logs/official_fee/gongimnara.log"
+  raw_dir: "data/raw/official_fee/gongimnara"   # HTML 저장 루트(파서가 이 폴더만 순회)
+  pretty_indent: 2
+
+targets:
+  # (선택) 내려받을 최상위 카테고리: cateNo -> 이름
+  # downloader는 이 목록을 사용해 내려받고,
+  # parser는 폴더명에 이름이 없으면 이 매핑으로 보강함.
+  cate:
+    "39": "국산차"
+    "41": "타이어"
+
+requests:
+  base: "https://www.gongim.com"
+  page_url: "/front/html/repair.php"
+  ajax_cate_list: "/front/html/proc/getGongImCateList.php"
+  ajax_sub_list: "/front/html/proc/getGongImCateSubList1.php"
+  timeout: 20
+  retries: 3
+  backoff_base: 1.5
+  delay_min: 1.2
+  delay_max: 2.5
+  headers:
+    Accept-Language: "ko,en;q=0.9"
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+  proxies: []  # 예: ["http://user:pass@host:port"]
+
+selectors:
+  cate_button: ".sortBtn"
+  cate_button_label: "text"          # 또는 "attr:title"
+  cate_button_sub_attr: "data-catesubno"
+
+tables:
+  replicate_spans: true
+  default_col_prefix: "col_"
+
+titles:
+  exclude_keywords: ["수정일", "업데이트", "update", "등록일"]
+  max_length: 50
+  min_length: 2
+  priority_selectors:
+    - ".jewon_ttl"
+    - ".oilyang"
+    - "span[style*='font-size:18px']"
+    - "h3"
+    - "h4"
+    - "strong"
+    - "b"
+    - "div"
+    - "span"
+  parent_hops: 2
+
+parsing:
+  # 예: "60,000원 (30~40분)" 또는 "80,000원 (30분)"
+  amount_time_regex: "(?P<amount>[\\d,]+)\\s*원?(?:\\s*\\((?P<time>[^)]+)\\))?"
