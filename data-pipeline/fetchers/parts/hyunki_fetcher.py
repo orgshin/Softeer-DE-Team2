@@ -1,54 +1,31 @@
-import os
-import random
-import time
 import logging
-from typing import Dict, List, Optional, Generator, Tuple
+import random
+import re
+import time
+from typing import Dict, Generator, Tuple
 from urllib.parse import urlencode
 
-from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 import requests
 import yaml
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
+# ==============================================================================
+# 웹 스크래핑 로직
+# ==============================================================================
 
-def load_config(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-def setup_logger(name: str, log_file: Optional[str]) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-    if not logger.handlers:
-        if log_file:
-            os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
-            fh = logging.FileHandler(log_file, encoding="utf-8")
-            fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-            logger.addHandler(fh)
-        sh = logging.StreamHandler()
-        sh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-        logger.addHandler(sh)
-    return logger
-
-_proxy_idx = 0
-def pick_proxy(proxies: List[Optional[str]]) -> Optional[Dict[str, str]]:
-    global _proxy_idx
-    if not proxies or not any(proxies):
-        return None
-    p = proxies[_proxy_idx % len(proxies)]
-    _proxy_idx += 1
-    return {"http": p, "https": p} if p else None
-
-def fetch_page(url: str, cfg: dict, logger: logging.Logger) -> Optional[str]:
-    timeout = cfg["requests"]["timeout"]
-    retries = cfg["requests"]["retries"]
-    delay = cfg["requests"]["backoff_base_sec"]
-    headers = (cfg["requests"].get("headers") or {}).copy()
-    user_agents = cfg["requests"].get("user_agents") or []
+def fetch_page(url: str, cfg: dict, logger: logging.Logger) -> str | None:
+    """지정된 URL의 HTML 내용을 가져옵니다."""
+    req_cfg = cfg["fetcher"]["requests"]
+    timeout = req_cfg["timeout"]
+    retries = req_cfg["retries"]
+    delay = req_cfg["backoff_base_sec"]
+    headers = (req_cfg.get("headers") or {}).copy()
+    user_agents = req_cfg.get("user_agents") or []
 
     for attempt in range(1, retries + 1):
         headers["User-Agent"] = random.choice(user_agents) if user_agents else "Mozilla/5.0"
-        proxies = pick_proxy(cfg["requests"].get("proxies") or [])
         try:
-            resp = requests.get(url, headers=headers, proxies=proxies, timeout=timeout)
+            resp = requests.get(url, headers=headers, timeout=timeout)
             resp.raise_for_status()
             if not resp.encoding or resp.encoding.lower() in ("iso-8859-1", "ascii"):
                 resp.encoding = resp.apparent_encoding
@@ -58,104 +35,80 @@ def fetch_page(url: str, cfg: dict, logger: logging.Logger) -> Optional[str]:
             if attempt == retries:
                 logger.error(f"[FAILED] Could not fetch {url} after {retries} attempts.")
                 return None
-            time.sleep(delay)
-            delay *= cfg["requests"]["backoff_base_sec"]
+            time.sleep(delay * attempt)
     return None
 
 def build_s3_key(prefix: str, category_name: str, page: int) -> str:
+    """S3에 저장할 파일 경로(Key)를 생성합니다."""
     safe_category = category_name.replace("/", "_")
-    prefix = (prefix or "").strip("/")
-    return f"{prefix}/{safe_category}/page_{page}.html" if prefix else f"{safe_category}/page_{page}.html"
+    return f"{prefix}/{safe_category}/page_{page}.html"
 
-def iter_pages(config_path: str) -> Generator[Tuple[str, str, dict], None, None]:
-    """
-    설정을 읽고 (key, html, meta) 튜플을 yield.
-    - key: S3 키 또는 로컬 파일 경로 생성에 사용할 상대 키
-    - html: 페이지 HTML
-    - meta: 부가 메타데이터 (url, category, page 등)
-    """
-    cfg = load_config(config_path)
-    logger = setup_logger("hyunki_downloader", cfg["general"].get("downloader_log_file"))
+def iter_pages(cfg: dict, logger: logging.Logger) -> Generator[Tuple[str, str, dict], None, None]:
+    """설정 파일을 기반으로 스크래핑할 페이지를 순회하며 (S3 key, HTML, 메타데이터)를 반환합니다."""
+    fetcher_cfg = cfg["fetcher"]
+    site_cfg = fetcher_cfg["site"]
+    delay_cfg = fetcher_cfg["delays"]
+    s3_prefix = cfg["s3"]["source_prefix"]
 
-    base_url = cfg["site"]["base"]
-    per_page_min = cfg["delays"]["per_page_min_sec"]
-    per_page_max = cfg["delays"]["per_page_max_sec"]
-    pause_between_categories = cfg["site"].get("pause_between_categories_sec", 0)
-    prefix = (cfg.get("s3", {}) or {}).get("prefix", "")
+    logger.info("=== HTML Downloader Generator Started ===")
 
-    logger.info("=== HTML Downloader Started (generator) ===")
-
-    for endpoint in cfg["site"]["endpoints"]:
+    for endpoint in site_cfg["endpoints"]:
         category_name = endpoint.strip("/").split("/")[0]
         logger.info(f"--- Processing category: {category_name} ({endpoint}) ---")
 
-        for page in range(cfg["site"]["start_page"], cfg["site"]["max_pages"] + 1):
-            url = f"{base_url}{endpoint}?{urlencode({cfg['site']['page_param']: page})}"
+        for page in range(site_cfg["start_page"], site_cfg["max_pages"] + 1):
+            params = {site_cfg['page_param']: page}
+            url = f"{site_cfg['base']}{endpoint}?{urlencode(params)}"
+            
             html = fetch_page(url, cfg, logger)
             if not html:
                 logger.warning(f"Stopping category '{category_name}' due to fetch failure at page {page}.")
                 break
 
-            key = build_s3_key(prefix, category_name, page)
+            key = build_s3_key(s3_prefix, category_name, page)
             meta = {"source_url": url, "category": category_name, "page": page}
 
             yield key, html, meta
 
-            time.sleep(random.uniform(per_page_min, per_page_max))
+            time.sleep(random.uniform(delay_cfg["per_page_min_sec"], delay_cfg["per_page_max_sec"]))
 
-        logger.info(f"--- Finished category: {category_name} ---")
-        if pause_between_categories > 0:
-            time.sleep(pause_between_categories)
+        if site_cfg["pause_between_categories_sec"] > 0:
+            time.sleep(site_cfg["pause_between_categories_sec"])
 
-    logger.info("=== HTML Downloader Finished (generator) ===")
+    logger.info("=== HTML Downloader Generator Finished ===")
 
-def run_downloader(config_path: str):
+# ==============================================================================
+# Airflow PythonOperator에서 호출될 메인 함수
+# ==============================================================================
+
+def run_downloader(config_path: str, **context):
     """
-    설정 파일을 기반으로 웹 페이지를 다운로드하여 S3 또는 로컬에 저장합니다.
-    Airflow PythonOperator에서 호출될 메인 함수입니다.
+    설정 파일을 기반으로 웹 페이지를 다운로드하여 S3에 저장합니다.
     """
-    cfg = load_config(config_path)
-    logger = logging.getLogger("airflow.task") # Airflow 로거 사용
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    
+    logger = context["ti"].log
+    s3_cfg = cfg["s3"]
+    
+    hook = S3Hook(aws_conn_id=s3_cfg["aws_conn_id"])
+    bucket = s3_cfg["source_bucket"]
+    
+    logger.info(f"Starting S3 download to bucket: {bucket}")
 
-    storage_target = (cfg["general"].get("storage_target") or "s3").lower()
+    for key, html, meta in iter_pages(cfg, logger):
+        # S3에 파일이 이미 존재하는 경우 건너뛰기 (옵션)
+        # if hook.check_for_key(key=key, bucket_name=bucket):
+        #     logger.info(f"[S3 SKIP] Already exists: s3://{bucket}/{key}")
+        #     continue
 
-    if storage_target == "s3" and (cfg.get("s3", {}).get("enabled", False)):
-        s3_cfg = cfg["s3"]
-        aws_conn_id = s3_cfg.get("aws_conn_id", "aws_default")
-        bucket = s3_cfg["bucket"]
-        skip_if_exists = bool(s3_cfg.get("skip_if_exists", True))
-
-        hook = S3Hook(aws_conn_id=aws_conn_id)
-        logger.info(f"Starting S3 download to bucket: {bucket}")
-
-        for key, html, meta in iter_pages(config_path):
-            if skip_if_exists and hook.check_for_key(key=key, bucket_name=bucket):
-                logger.info(f"[S3 SKIP] Already exists: s3://{bucket}/{key}")
-                continue
-
-            hook.load_string(
-                string_data=html,
-                key=key,
-                bucket_name=bucket,
-                replace=True,
-                encoding="utf-8",
-            )
-            logger.info(f"[S3 SAVED] s3://{bucket}/{key} (meta: {meta})")
-        logger.info("S3 download process finished.")
-
-    else:
-        out_dir = cfg["general"]["html_output_dir"]
-        os.makedirs(out_dir, exist_ok=True)
-        logger.info(f"Starting local download to directory: {out_dir}")
-
-        for key, html, meta in iter_pages(config_path):
-            file_path = os.path.join(out_dir, key)
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-            if os.path.exists(file_path) and cfg.get("s3", {}).get("skip_if_exists", True):
-                logger.info(f"[LOCAL SKIP] {file_path}")
-                continue
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(html)
-            logger.info(f"[LOCAL SAVED] {file_path} (meta: {meta})")
-        logger.info("Local download process finished.")
+        hook.load_string(
+            string_data=html,
+            key=key,
+            bucket_name=bucket,
+            replace=True,
+            encoding="utf-8",
+        )
+        logger.info(f"[S3 SAVED] s3://{bucket}/{key} (meta: {meta})")
+        
+    logger.info("S3 download process finished.")

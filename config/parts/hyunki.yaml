@@ -1,84 +1,63 @@
 # ======================================================
-# 크롤링 전반에 사용될 설정 파일 (사용자 설정 통합)
+# Hyunki 부품 ETL 파이프라인 설정 파일
 # ======================================================
 
-general:
-  downloader_log_file: "data/logs/parts/downloader_hyunki.log" # 다운로더 로그
-  parser_log_file: "data/logs/parts/parser_hyunki.log"       # 파서 로그
-  html_output_dir: "data/raw/parts/hyunki"                  # 다운로드한 HTML 저장 위치 (신규)
-  csv_output_file: "data/out/parts/hyunki.csv"             # 최종 CSV 파일 경로
-  storage_target: "s3"   # "s3" 또는 "local"
-
-  csv_fields:
-    - "category"
-    - "name"
-    - "part_code"
-    - "price"
-
-site:
-  base: "https://hyunkistore.com/category"
-  endpoints:
-    - "/엔진/50/"
-    - "/트림/54/"
-    - "/전기장치/55/"
-    - "/미션/51/"
-    - "/샤시/52/"
-    - "/바디/53/"
-    - "/기타/57/"
-  page_param: "page"
-  start_page: 1
-  max_pages: 1
-  pause_between_categories_sec: 2.0
-
-requests:
-  timeout: 20
-  retries: 3
-  backoff_base_sec: 1.8
-  headers:
-    Accept-Language: "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
-    Referer: "https://hyunkistore.com/"
-    Cache-Control: "no-cache"
-    Pragma: "no-cache"
-  user_agents:
-    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
-    - "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0"
-  proxies: []
-
-delays:
-  per_page_min_sec: 8.0
-  per_page_max_sec: 12.0
-
-# ======================================================
-# HTML 파싱 관련 설정 (사용자 설정 통합)
-# ======================================================
-
-selectors:
-  list_container: "ul.prdList.grid4"
-  item_li: 'li[id^="anchorBoxId_"]'
-  name_candidates:
-    - ".description .name span"
-    - ".name span"
-  price_candidates:
-    - ".price_all .pri"
-    - ".price_all .strike"
-    - ".price_all .custom"
-  hidden_class: "displaynone"
-
-parsing:
-  # 제품명 끝에 있는 괄호 안의 코드를 추출하는 정규식
-  part_code_regex: "\\(([^)]+)\\)\\s*$"
-  # 가격에서 숫자와 콤마(,)만 추출하는 정규식
-  price_regex: "[\\d,]+"
-
+# S3 경로 설정
 s3:
-  enabled: true
-  aws_conn_id: "conn_s3"     # Airflow Connection ID
-  bucket: "team2-html-raw"
-  prefix: "parts/hyunki"     # s3 key prefix
-  skip_if_exists: true
+  # Airflow에 설정된 AWS Connection ID
+  aws_conn_id: "conn_s3"
 
-s3_output:
-  aws_conn_id: "conn_s3"          
-  bucket: "team2-html-out"  # Parquet을 저장할 버킷 (예시)
-  key: "parts/hyunki/products.parquet"
+  # 원본 HTML 파일이 저장된 위치
+  source_bucket: "team2-html-raw"
+  source_prefix: "parts/hyunki"
+
+  # 최종 Parquet 파일이 저장될 위치
+  dest_bucket: "team2-html-out"
+  dest_prefix: "parts/hyunki"
+
+# 웹 스크래핑(Fetcher) 관련 설정
+fetcher:
+  site:
+    base: "https://hyunkistore.com/category"
+    endpoints:
+      - "/엔진/50/"
+      # - "/트림/54/"
+      # - "/전기장치/55/"
+      # - "/미션/51/"
+      # - "/샤시/52/"
+      # - "/바디/53/"
+      # - "/기타/57/"
+    page_param: "page"
+    start_page: 1
+    max_pages: 1 # 테스트를 위해 1로 설정, 실제 운영 시 조정
+    pause_between_categories_sec: 2.0
+  requests:
+    timeout: 20
+    retries: 3
+    backoff_base_sec: 1.8
+    headers:
+      Accept-Language: "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+      Referer: "https://hyunkistore.com/"
+    user_agents:
+      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+  delays:
+    per_page_min_sec: 8.0
+    per_page_max_sec: 12.0
+
+# HTML 파싱(Spark Job) 관련 설정
+parser:
+  selectors:
+    list_container: "ul.prdList.grid4"
+    item_li: 'li[id^="anchorBoxId_"]'
+    name_candidates:
+      - ".description .name span"
+      - ".name span"
+    price_candidates:
+      - ".price_all .pri"
+      - ".price_all .strike"
+      - ".price_all .custom"
+    hidden_class: "displaynone"
+  regex:
+    part_code: "\\(([^)]+)\\)\\s*$"
+    price: "[\\d,]+"
