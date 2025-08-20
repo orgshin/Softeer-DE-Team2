@@ -86,7 +86,7 @@ def fetch_page(url: str, cfg: dict, logger: logging.Logger) -> Optional[str]:
 
 def run_downloader():
     """설정 파일에 정의된 모든 페이지를 다운로드하여 로컬에 저장합니다."""
-    cfg = load_config("data-pipeline/config/hyeonki.yaml")
+    cfg = load_config("data-pipeline/config/hyunki.yaml")
     logger = setup_logger("downloader", cfg["general"]["downloader_log_file"])
     
     base_url = cfg["site"]["base"]

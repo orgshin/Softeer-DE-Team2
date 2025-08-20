@@ -3,10 +3,10 @@
 # ======================================================
 
 general:
-  downloader_log_file: "data/logs/parts/downloader_hyeonki2.log" # 다운로더 로그
-  parser_log_file: "data/logs/parts/parser_hyeonki2.log"       # 파서 로그
-  html_output_dir: "data/raw/parts/hyeonki2"                  # 다운로드한 HTML 저장 위치 (신규)
-  csv_output_file: "data/out/parts/hyeonki2.csv"             # 최종 CSV 파일 경로
+  downloader_log_file: "data/logs/parts/downloader_hyunki.log" # 다운로더 로그
+  parser_log_file: "data/logs/parts/parser_hyunki.log"       # 파서 로그
+  html_output_dir: "data/raw/parts/hyunki"                  # 다운로드한 HTML 저장 위치 (신규)
+  csv_output_file: "data/out/parts/hyunki.csv"             # 최종 CSV 파일 경로
 
   csv_fields:
     - "category"
