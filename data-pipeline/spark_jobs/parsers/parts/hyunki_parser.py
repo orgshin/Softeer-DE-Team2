@@ -118,6 +118,20 @@ def parse_s3_html_to_s3_parquet(config_path: str):
     """
     cfg = load_config(config_path)
     logger = logging.getLogger("airflow.task")
+    
+def run_parser():
+    """로컬에 저장된 모든 HTML 파일을 파싱하고 결과를 CSV로 저장합니다."""
+    cfg = load_config("data-pipeline/config/hyunki.yaml")
+    logger = setup_logger("parser", cfg["general"]["parser_log_file"])
+    
+    input_dir = cfg["general"]["html_output_dir"]
+    output_csv = cfg["general"]["csv_output_file"]
+    csv_fields = cfg["general"]["csv_fields"]
+    
+    # 기존 CSV 파일이 있다면 삭제하고 새로 시작
+    if os.path.exists(output_csv):
+        os.remove(output_csv)
+        logger.info(f"Removed existing CSV file: {output_csv}")
 
     # S3 연결 설정
     s3_cfg = cfg["s3"]
