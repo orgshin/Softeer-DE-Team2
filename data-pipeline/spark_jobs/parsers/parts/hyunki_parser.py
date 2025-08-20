@@ -145,7 +145,7 @@ def parse_html_file(html_content: str, cfg: dict, logger: logging.Logger) -> Lis
 
 def run_parser():
     """로컬에 저장된 모든 HTML 파일을 파싱하고 결과를 CSV로 저장합니다."""
-    cfg = load_config("data-pipeline/config/hyeonki.yaml")
+    cfg = load_config("data-pipeline/config/hyunki.yaml")
     logger = setup_logger("parser", cfg["general"]["parser_log_file"])
     
     input_dir = cfg["general"]["html_output_dir"]
