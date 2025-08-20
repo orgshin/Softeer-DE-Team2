@@ -1,5 +1,9 @@
 data/
 test/
 app/
+<<<<<<< HEAD
 crawling/
 spark_jobs/
+=======
+crawling/
+>>>>>>> feature/data-pipeline/spark-jobs
