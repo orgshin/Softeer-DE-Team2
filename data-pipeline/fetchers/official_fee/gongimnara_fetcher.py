@@ -10,6 +10,7 @@ import requests
 from typing import Dict, Any, List
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
 # ------------------- Config & Logging -------------------
 def load_cfg(path: str = "gongimnara.yaml") -> Dict[str, Any]:
@@ -87,21 +88,37 @@ def get_sub_fragment(session, cate_no: str, cate_sub_no: str, cfg, logger):
 def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
-def main():
-    cfg = load_cfg("./config/official_fee/gongimnara.yaml")
-    logger = setup_logger(cfg["general"]["log_file"])
-    session = requests.Session()
-    
-    output_base_dir = cfg["general"]["raw_dir"]
-    os.makedirs(output_base_dir, exist_ok=True)
-    logger.info(f"HTML 파일을 저장할 기본 폴더: {output_base_dir}")
+def run_fetcher(**context):
+    """
+    Airflow DAG에서 호출할 Fetcher 메인 함수.
+    웹사이트에서 HTML을 가져와 S3에 업로드합니다.
+    """
+    config_path = '/opt/airflow/config/official_fee/gongimnara.yaml'
+    with open(config_path, 'r', encoding='utf-8') as f:
+        cfg = yaml.safe_load(f)
 
+    # --- ✨ 수정된 부분 ---
+    # Airflow의 표준 로거를 사용하도록 변경합니다.
+    # 이렇게 하면 FileNotFoundError가 발생하지 않고, 로그가 Airflow UI에 자동으로 기록됩니다.
+    logger = logging.getLogger("airflow.task")
+    # --------------------
+
+    session = requests.Session()
+
+    # Airflow Connection을 사용하여 S3 Hook 생성
+    s3_hook = S3Hook(aws_conn_id=cfg['aws']['s3_connection_id'])
+    
+    # ✨ 수정된 부분: config 파일에 raw_bucket_name 키가 없으므로 bucket_name을 사용합니다.
+    # 이 부분은 사용하시는 config.yaml 파일의 키 이름에 맞춰주세요.
+    # 만약 raw/out 버킷이 다르다면 fetcher는 raw_bucket_name을 사용해야 합니다.
+    bucket_name = cfg['aws'].get('raw_bucket_name', cfg['aws'].get('bucket_name'))
+    
+    logger.info(f"S3 Bucket: {bucket_name}에 HTML 파일을 업로드합니다.")
+
+    # Warm-up
     http_request(session, "get", urljoin(cfg["requests"]["base"], cfg["requests"]["page_url"]), cfg)
 
     for cate_no, cate_name in cfg["targets"]["cate"].items():
-        cate_dir = os.path.join(output_base_dir, sanitize_filename(cate_name))
-        os.makedirs(cate_dir, exist_ok=True)
-        
         logger.info(f"'{cate_name}' 카테고리 항목을 가져오는 중...")
         items = get_cate_items(session, cate_no, cfg, logger)
         
@@ -109,22 +126,30 @@ def main():
         for i, item in enumerate(items, 1):
             label, sub_no = item["label"], item["cateSubNo"]
             safe_label = sanitize_filename(label)
-            output_path = os.path.join(cate_dir, f"{safe_label}.html")
+            
+            # S3에 저장할 경로(Key) 설정
+            s3_key = f"{cfg['aws']['raw_html_prefix']}/{sanitize_filename(cate_name)}/{safe_label}.html"
 
             try:
                 logger.info(f"[{cate_name} ({i}/{total})] '{label}' 데이터 가져오는 중...")
                 fragment_html = get_sub_fragment(session, cate_no, sub_no, cfg, logger)
                 
-                with open(output_path, "w", encoding="utf-8") as f:
-                    f.write(fragment_html)
+                # S3에 문자열 직접 업로드
+                s3_hook.load_string(
+                    string_data=fragment_html,
+                    key=s3_key,
+                    bucket_name=bucket_name,
+                    replace=True
+                )
                 
-                logger.info(f" -> 성공적으로 '{output_path}'에 저장했습니다.")
+                logger.info(f" -> 성공적으로 's3://{bucket_name}/{s3_key}'에 저장했습니다.")
             except Exception as e:
                 logger.error(f"'{label}' 처리 중 오류 발생: {e}", exc_info=True)
             
             time.sleep(random.uniform(cfg["requests"]["delay_min"], cfg["requests"]["delay_max"]))
     
-    logger.info("[FETCHING COMPLETE] 모든 HTML 파일 저장을 완료했습니다.")
+    logger.info("[FETCHER COMPLETE] 모든 HTML 파일의 S3 업로드를 완료했습니다.")
 
+# 로컬 테스트용
 if __name__ == "__main__":
-    main()
+    run_fetcher()

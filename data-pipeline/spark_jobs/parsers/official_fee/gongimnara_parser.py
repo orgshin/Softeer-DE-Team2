@@ -1,13 +1,16 @@
 # parser.py
-
 import os
 import re
 import csv
-import glob
+import io
 import yaml
 import logging
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from bs4 import BeautifulSoup, Tag
 from typing import Dict, Any, List, Optional, Tuple
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
 # ------------------- Config & Logging -------------------
 def load_cfg(path: str = "gongimnara.yaml") -> Dict[str, Any]:
@@ -216,51 +219,92 @@ def to_row(rec: Dict[str, Any], cate_name: str, label: str, section_title: str, 
     }
 
 # ------------------- Main Parser Logic -------------------
-def main():
-    # 실제 환경에 맞는 config 경로를 지정해주세요.
-    cfg = load_cfg("./config/official_fee/gongimnara.yaml")
-    logger = setup_logger(cfg["general"]["log_file"])
-    
-    input_base_dir = cfg["general"]["raw_dir"]
-    # CSV 파일명은 config에 out_csv가 있으면 사용, 없으면 output.csv로 저장
-    output_csv_path = cfg["general"].get("out_csv", "output.csv")
+def run_parser(**context):
+    """
+    Airflow DAG에서 호출할 Parser 메인 함수.
+    S3에서 HTML을 읽어 파싱하고, 결과를 Parquet 형식으로 다른 S3 버킷에 저장합니다.
+    """
+    config_path = '/opt/airflow/config/official_fee/gongimnara.yaml'
+    with open(config_path, 'r', encoding='utf-8') as f:
+        cfg = yaml.safe_load(f)
 
-    html_files = glob.glob(os.path.join(input_base_dir, "**", "*.html"), recursive=True)
-    if not html_files:
-        logger.warning(f"'{input_base_dir}' 폴더에 파싱할 HTML 파일이 없습니다. fetcher.py를 먼저 실행해주세요.")
+    # --- ✨ 수정된 부분 ---
+    # Airflow의 표준 로거를 사용하도록 변경합니다.
+    logger = logging.getLogger("airflow.task")
+    # --------------------
+
+    s3_hook = S3Hook(aws_conn_id=cfg['aws']['s3_connection_id'])
+    
+    # --- ✨ 수정된 부분 시작 ---
+
+    # 1. 원본(raw)과 결과(out) 버킷/경로를 별도 변수로 명확히 정의
+    raw_bucket = cfg['aws']['raw_bucket_name']
+    html_prefix = cfg['aws']['raw_html_prefix']
+    
+    out_bucket = cfg['aws']['out_bucket']
+    parquet_prefix = cfg['aws']['out_parquet_prefix']
+    
+    # S3에서 파싱할 HTML 파일 목록 가져오기 (raw_bucket 사용)
+    html_keys = s3_hook.list_keys(bucket_name=raw_bucket, prefix=html_prefix)
+    if not html_keys:
+        logger.warning(f"'s3://{raw_bucket}/{html_prefix}'에 파싱할 파일이 없습니다.")
         return
         
-    logger.info(f"총 {len(html_files)}개의 HTML 파일을 파싱합니다.")
+    logger.info(f"총 {len(html_keys)}개의 HTML 파일을 's3://{raw_bucket}'에서 파싱합니다.")
 
-    CSV_FIELDS = ["cate_name", "label", "section_title", "공임비_num", "소요시간_min", "소요시간_max", "작업종류"]
+    all_records = []
+    for key in html_keys:
+        if not key.endswith(".html"):
+            continue
+        try:
+            parts = key.replace(html_prefix + '/', '').split('/')
+            cate_name = parts[0]
+            label = os.path.splitext(parts[1])[0]
+            logger.info(f"파싱 중: s3://{raw_bucket}/{key}")
+            
+            # S3에서 HTML 파일 내용 읽기 (raw_bucket 사용)
+            html_content = s3_hook.read_key(key=key, bucket_name=raw_bucket)
+            
+            sections = parse_fragment(html_content, cfg)
+            
+            for sec in sections:
+                section_title = sec.get("section_title", "")
+                for rec in sec.get("records", []):
+                    row_data = to_row(rec, cate_name, label, section_title, cfg)
+                    if row_data:
+                        safe_row = {k: (None if v is None else v) for k, v in row_data.items()}
+                        all_records.append(safe_row)
+        except Exception as e:
+            logger.error(f"'{key}' 파일 처리 중 오류 발생: {e}", exc_info=True)
+
+    if not all_records:
+        logger.warning("파싱된 데이터가 없어 Parquet 파일을 생성하지 않습니다.")
+        return
+
+    df = pd.DataFrame(all_records)
     
-    with open(output_csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        
-        for file_path in html_files:
-            try:
-                parts = file_path.split(os.sep)
-                cate_name = parts[-2]
-                label = os.path.splitext(parts[-1])[0]
-                logger.info(f"파싱 중: {file_path}")
-                
-                with open(file_path, "r", encoding="utf-8") as html_file:
-                    html_content = html_file.read()
-                
-                sections = parse_fragment(html_content, cfg)
-                
-                for sec in sections:
-                    section_title = sec.get("section_title", "")
-                    for rec in sec.get("records", []):
-                        row_data = to_row(rec, cate_name, label, section_title, cfg)
-                        if row_data:
-                            safe_row = {k: ("" if v is None else v) for k, v in row_data.items()}
-                            writer.writerow(safe_row)
-            except Exception as e:
-                logger.error(f"'{file_path}' 파일 처리 중 오류 발생: {e}", exc_info=True)
+    execution_date = context.get('ds_nodash', 'manual')
+    # 2. Parquet 파일 키 생성 시 out_parquet_prefix 사용
+    parquet_key = f"{parquet_prefix}/gongimnara_fee_{execution_date}.parquet"
+    
+    buffer = io.BytesIO()
+    df.to_parquet(buffer, index=False, engine='pyarrow')
+    
+    # 3. 버퍼의 내용을 S3에 업로드 (out_bucket 사용)
+    s3_hook.load_bytes(
+        bytes_data=buffer.getvalue(),
+        key=parquet_key,
+        bucket_name=out_bucket, # out_bucket으로 변경
+        replace=True
+    )
 
-    logger.info(f"[PARSING COMPLETE] 최종 결과가 '{output_csv_path}'에 저장되었습니다.")
+    # 4. 최종 로그 메시지에 올바른 out_bucket 경로 표시
+    logger.info(f"[PARSER COMPLETE] 최종 결과가 's3://{out_bucket}/{parquet_key}'에 저장되었습니다.")
 
+    # --- ✨ 수정된 부분 끝 ---
+
+# 로컬 테스트용
 if __name__ == "__main__":
-    main()
+    # 로컬 테스트를 위한 context 모의 객체
+    mock_context = {'ds_nodash': '20250820'}
+    run_parser(**mock_context)
