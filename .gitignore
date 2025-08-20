@@ -6,3 +6,4 @@ spark_jobs/
 crawling/
 include/
 data-pipeline/logs/
+__pycache__/

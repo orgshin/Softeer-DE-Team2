@@ -5,6 +5,7 @@ import logging
 from typing import Dict, List, Optional, Generator, Tuple
 from urllib.parse import urlencode
 
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 import requests
 import yaml
 
@@ -107,3 +108,54 @@ def iter_pages(config_path: str) -> Generator[Tuple[str, str, dict], None, None]
             time.sleep(pause_between_categories)
 
     logger.info("=== HTML Downloader Finished (generator) ===")
+
+def run_downloader(config_path: str):
+    """
+    설정 파일을 기반으로 웹 페이지를 다운로드하여 S3 또는 로컬에 저장합니다.
+    Airflow PythonOperator에서 호출될 메인 함수입니다.
+    """
+    cfg = load_config(config_path)
+    logger = logging.getLogger("airflow.task") # Airflow 로거 사용
+
+    storage_target = (cfg["general"].get("storage_target") or "s3").lower()
+
+    if storage_target == "s3" and (cfg.get("s3", {}).get("enabled", False)):
+        s3_cfg = cfg["s3"]
+        aws_conn_id = s3_cfg.get("aws_conn_id", "aws_default")
+        bucket = s3_cfg["bucket"]
+        skip_if_exists = bool(s3_cfg.get("skip_if_exists", True))
+
+        hook = S3Hook(aws_conn_id=aws_conn_id)
+        logger.info(f"Starting S3 download to bucket: {bucket}")
+
+        for key, html, meta in iter_pages(config_path):
+            if skip_if_exists and hook.check_for_key(key=key, bucket_name=bucket):
+                logger.info(f"[S3 SKIP] Already exists: s3://{bucket}/{key}")
+                continue
+
+            hook.load_string(
+                string_data=html,
+                key=key,
+                bucket_name=bucket,
+                replace=True,
+                encoding="utf-8",
+            )
+            logger.info(f"[S3 SAVED] s3://{bucket}/{key} (meta: {meta})")
+        logger.info("S3 download process finished.")
+
+    else:
+        out_dir = cfg["general"]["html_output_dir"]
+        os.makedirs(out_dir, exist_ok=True)
+        logger.info(f"Starting local download to directory: {out_dir}")
+
+        for key, html, meta in iter_pages(config_path):
+            file_path = os.path.join(out_dir, key)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+            if os.path.exists(file_path) and cfg.get("s3", {}).get("skip_if_exists", True):
+                logger.info(f"[LOCAL SKIP] {file_path}")
+                continue
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html)
+            logger.info(f"[LOCAL SAVED] {file_path} (meta: {meta})")
+        logger.info("Local download process finished.")

@@ -5,29 +5,26 @@ import logging
 from typing import Dict, List, Optional
 
 import yaml
+import pandas as pd
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, ValidationError
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
 # ==============================================================================
 # 데이터 유효성 검증을 위한 Pydantic 모델
 # ==============================================================================
 
 class PartItem(BaseModel):
-    """
-    크롤링한 부품 아이템의 데이터 구조를 정의하고 유효성을 검증합니다.
-    """
-    category: Optional[str] = None
-    category_id: Optional[str] = None
+    category: str = None
     name: str
-    part_code: Optional[str] = None
+    part_code: str = None
     price: int
 
 # ==============================================================================
 # 설정 및 로깅 (공통 모듈로 분리 가능)
 # ==============================================================================
 
-def load_config(path: str = "config.yaml") -> dict:
-    """YAML 설정 파일을 로드합니다."""
+def load_config(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -86,120 +83,111 @@ def extract_visible_price_tag(li_tag: BeautifulSoup, cfg_selectors: dict):
             return candidate
     return None
 
-# ==============================================================================
-# CSV 처리
-# ==============================================================================
-
-def write_to_csv(items: List[PartItem], file_path: str, fields: List[str]):
-    """
-    파싱 및 검증이 완료된 데이터를 CSV 파일에 추가합니다.
-    파일이 없으면 헤더와 함께 새로 생성합니다.
-    """
-    file_exists = os.path.exists(file_path)
-    os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-    with open(file_path, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        if not file_exists:
-            writer.writeheader()
-        
-        for item in items:
-            full_data = item.model_dump()
-            row_to_write = {field: full_data.get(field) for field in fields}
-            writer.writerow(row_to_write)
-
-# ==============================================================================
-# 파서 메인 로직
-# ==============================================================================
-
-def parse_html_file(html_content: str, cfg: dict, logger: logging.Logger) -> List[PartItem]:
-    """단일 HTML 파일의 내용을 파싱하여 PartItem 리스트를 반환합니다."""
+def parse_html_content(html_content: str, cfg: dict) -> List[PartItem]:
+    """단일 HTML 문자열의 내용을 파싱하여 PartItem 리스트를 반환합니다."""
     soup = BeautifulSoup(html_content, "html.parser")
     cfg_sel = cfg["selectors"]
     cfg_parse = cfg["parsing"]
-
-    # 목록 컨테이너가 없어도 전체 문서에서 검색 시도
     container = soup.select_one(cfg_sel["list_container"]) or soup
     
     validated_items: List[PartItem] = []
     
     for li in container.select(cfg_sel["item_li"]):
-        # 이름 추출
         name_tag = next((li.select_one(sel) for sel in cfg_sel["name_candidates"] if li.select_one(sel)), None)
         if not name_tag:
             continue
         raw_name = name_tag.get_text(strip=True)
         name, part_code = split_name_and_code(raw_name, cfg_parse["part_code_regex"])
 
-        # 가격 추출
         price_tag = extract_visible_price_tag(li, cfg_sel)
         price = parse_price(price_tag.get_text() if price_tag else "", cfg_parse["price_regex"])
 
         try:
-            # Pydantic 모델을 사용하여 데이터 생성 및 유효성 검증
             item = PartItem(name=name, part_code=part_code, price=price)
             validated_items.append(item)
         except ValidationError as e:
-            logger.warning(f"Data validation failed for item '{raw_name}'. Errors: {e.errors()}")
+            # Airflow에서는 print 대신 logger 사용을 권장
+            logging.warning(f"Data validation failed for '{raw_name}'. Errors: {e.errors()}")
             
     return validated_items
 
-def run_parser():
-    """로컬에 저장된 모든 HTML 파일을 파싱하고 결과를 CSV로 저장합니다."""
-    cfg = load_config("data-pipeline/config/hyeonki.yaml")
-    logger = setup_logger("parser", cfg["general"]["parser_log_file"])
-    
-    input_dir = cfg["general"]["html_output_dir"]
-    output_csv = cfg["general"]["csv_output_file"]
-    csv_fields = cfg["general"]["csv_fields"]
-    
-    # 기존 CSV 파일이 있다면 삭제하고 새로 시작
-    if os.path.exists(output_csv):
-        os.remove(output_csv)
-        logger.info(f"Removed existing CSV file: {output_csv}")
+def parse_s3_html_to_s3_parquet(config_path: str):
+    """
+    S3에서 HTML을 읽어 파싱한 후, 결과를 다른 S3 버킷에 Parquet으로 저장합니다.
+    Airflow PythonOperator에서 호출될 메인 함수입니다.
+    """
+    cfg = load_config(config_path)
+    logger = logging.getLogger("airflow.task")
 
-    logger.info("=== HTML Parser Started ===")
-
-    # config의 endpoints 순서와 매칭하여 카테고리 ID를 찾음
-    endpoint_map = {ep.strip("/").split("/")[0]: ep for ep in cfg["site"]["endpoints"]}
+    # S3 연결 설정
+    s3_cfg = cfg["s3"]
+    s3_output_cfg = cfg["s3_output"]
     
-    # HTML 저장 디렉토리 순회
-    for category_name in sorted(os.listdir(input_dir)):
-        category_dir = os.path.join(input_dir, category_name)
-        if not os.path.isdir(category_dir):
+    source_hook = S3Hook(aws_conn_id=s3_cfg["aws_conn_id"])
+    dest_hook = S3Hook(aws_conn_id=s3_output_cfg["aws_conn_id"])
+
+    source_bucket = s3_cfg["bucket"]
+    source_prefix = s3_cfg["prefix"]
+    
+    dest_bucket = s3_output_cfg["bucket"]
+    dest_key = s3_output_cfg["key"]
+
+    logger.info(f"=== S3 HTML Parser Started ===")
+    logger.info(f"Source: s3://{source_bucket}/{source_prefix}")
+    logger.info(f"Destination: s3://{dest_bucket}/{dest_key}")
+
+    all_parsed_items = []
+    
+    # 1. 소스 버킷에서 HTML 파일 키 목록 가져오기
+    html_keys = source_hook.list_keys(bucket_name=source_bucket, prefix=source_prefix)
+    if not html_keys:
+        logger.warning("No HTML files found in the source path. Exiting.")
+        return
+
+    for key in html_keys:
+        if not key.endswith(".html"):
             continue
 
-        logger.info(f"--- Parsing category: {category_name} ---")
+        logger.info(f"[PARSING] s3://{source_bucket}/{key}")
         
-        # 카테고리 정보 추출
-        endpoint = endpoint_map.get(category_name, "")
-        segs = [s for s in endpoint.strip("/").split("/") if s]
-        category_id = segs[1] if len(segs) >= 2 else None
-
-        # 해당 카테고리의 모든 html 파일 처리
-        for filename in sorted(os.listdir(category_dir), key=lambda x: int(re.search(r'\d+', x).group())):
-            if not filename.endswith(".html"):
-                continue
-
-            file_path = os.path.join(category_dir, filename)
-            logger.info(f"[PARSING] {file_path}")
+        # 2. S3에서 HTML 파일 내용 읽기
+        html_content = source_hook.read_key(key=key, bucket_name=source_bucket)
+        
+        # 3. HTML 파싱
+        items = parse_html_content(html_content, cfg)
+        if not items:
+            logger.info(f"[EMPTY] No items found in {key}.")
+            continue
             
-            with open(file_path, "r", encoding="utf-8") as f:
-                html_content = f.read()
-
-            items = parse_html_file(html_content, cfg, logger)
-            if not items:
-                logger.info(f"[EMPTY] No items found in {file_path}.")
-                continue
-
-            # 각 아이템에 카테고리 정보 추가
+        # 4. 카테고리 정보 추가 (S3 key 경로에서 추출)
+        try:
+            category_name = key.split('/')[-2] # e.g., 'parts/hyunki/엔진/page_1.html' -> '엔진'
             for item in items:
                 item.category = category_name
-                item.category_id = category_id
-            
-            write_to_csv(items, output_csv, csv_fields)
-            logger.info(f"[SAVED] Parsed {len(items)} items from {file_path}")
+            all_parsed_items.extend(items)
+            logger.info(f"Parsed {len(items)} items from {key}")
+        except IndexError:
+            logger.warning(f"Could not determine category from key: {key}")
 
-    logger.info(f"=== HTML Parser Finished. Data saved to {output_csv} ===")
+    if not all_parsed_items:
+        logger.warning("No items were parsed in total. No output file will be generated.")
+        return
+        
+    # 5. Pandas DataFrame으로 변환
+    logger.info(f"Converting {len(all_parsed_items)} items to DataFrame.")
+    items_dict = [item.model_dump() for item in all_parsed_items]
+    df = pd.DataFrame(items_dict)
+    
+    # 6. DataFrame을 Parquet 바이트로 변환
+    logger.info("Converting DataFrame to Parquet format in memory.")
+    parquet_buffer = df.to_parquet(index=False, engine='pyarrow')
 
-if __name__ == "__main__":
-    run_parser()
+    # 7. Parquet 바이트를 S3에 업로드
+    dest_hook.load_bytes(
+        bytes_data=parquet_buffer,
+        key=dest_key,
+        bucket_name=dest_bucket,
+        replace=True
+    )
+    
+    logger.info(f"=== S3 Parser Finished. Data saved to s3://{dest_bucket}/{dest_key} ===")

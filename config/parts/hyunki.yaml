@@ -77,3 +77,8 @@ s3:
   bucket: "hmg-html-raw"
   prefix: "parts/hyunki"     # s3 key prefix
   skip_if_exists: true
+
+s3_output:
+  aws_conn_id: "conn_s3"          
+  bucket: "hmg-html-out"  # Parquet을 저장할 버킷 (예시)
+  key: "parts/hyunki/products.parquet"
