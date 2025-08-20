@@ -7,6 +7,7 @@ general:
   parser_log_file: "data/logs/parts/parser_hyunki.log"       # 파서 로그
   html_output_dir: "data/raw/parts/hyunki"                  # 다운로드한 HTML 저장 위치 (신규)
   csv_output_file: "data/out/parts/hyunki.csv"             # 최종 CSV 파일 경로
+  storage_target: "s3"   # "s3" 또는 "local"
 
   csv_fields:
     - "category"
@@ -26,7 +27,7 @@ site:
     - "/기타/57/"
   page_param: "page"
   start_page: 1
-  max_pages: 1000
+  max_pages: 1
   pause_between_categories_sec: 2.0
 
 requests:
@@ -69,3 +70,10 @@ parsing:
   part_code_regex: "\\(([^)]+)\\)\\s*$"
   # 가격에서 숫자와 콤마(,)만 추출하는 정규식
   price_regex: "[\\d,]+"
+
+s3:
+  enabled: true
+  aws_conn_id: "conn_s3"     # Airflow Connection ID
+  bucket: "hmg-html-raw"
+  prefix: "parts/hyunki"     # s3 key prefix
+  skip_if_exists: true

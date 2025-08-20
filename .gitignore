@@ -4,3 +4,5 @@ app/
 crawling/
 spark_jobs/
 crawling/
+include/
+data-pipeline/logs/
