@@ -1,190 +1,130 @@
+# fetcher.py
+
 import os
 import re
-import json
 import time
 import random
 import logging
-from typing import Dict, Any, List, Optional
-from urllib.parse import urljoin
-
-import requests
 import yaml
+import requests
+from typing import Dict, Any, List
+from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
-
-# ---------------- Config & Logging ----------------
-def load_cfg(path: str = "config.yaml") -> Dict[str, Any]:
+# ------------------- Config & Logging -------------------
+def load_cfg(path: str = "gongimnara.yaml") -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
-def setup_logger(path: str) -> logging.Logger:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    logger = logging.getLogger("gongim_downloader")
+def setup_logger(log_path: str) -> logging.Logger:
+    logger = logging.getLogger("gongim_fetcher")
     logger.setLevel(logging.INFO)
     if not logger.handlers:
-        fh = logging.FileHandler(path, encoding="utf-8")
         sh = logging.StreamHandler()
-        fmt = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
-        fh.setFormatter(fmt)
-        sh.setFormatter(fmt)
+        fh = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+        formatter = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
+        fh.setFormatter(formatter)
+        sh.setFormatter(formatter)
         logger.addHandler(fh)
         logger.addHandler(sh)
     return logger
 
-
-# ---------------- HTTP Utilities ----------------
-def _pick_ua(cfg: dict) -> str:
+# ------------------- HTTP Helpers (강화) -------------------
+def pick_ua(cfg):
     uas = cfg["requests"].get("user_agents") or []
     return random.choice(uas) if uas else "Mozilla/5.0"
 
-def _new_session(cfg: dict) -> requests.Session:
-    s = requests.Session()
-    proxies = cfg["requests"].get("proxies") or []
-    if proxies:
-        p = random.choice(proxies)
-        s.proxies = {"http": p, "https": p}
-    return s
-
-def _fix_encoding(resp: requests.Response) -> str:
-    if not resp.encoding or resp.encoding.lower() in ("iso-8859-1", "ascii"):
-        resp.encoding = resp.apparent_encoding
-    return resp.text
-
-def http_get(session: requests.Session, url: str, cfg: dict, logger: logging.Logger) -> str:
+def http_request(session, method, url, cfg, **kwargs):
     timeout = cfg["requests"]["timeout"]
     retries = cfg["requests"]["retries"]
     backoff = float(cfg["requests"]["backoff_base"])
-    headers = (cfg["requests"].get("headers") or {}).copy()
-    headers["User-Agent"] = _pick_ua(cfg)
-    headers["Referer"] = urljoin(cfg["requests"]["base"], cfg["requests"]["page_url"])
+    
+    headers = cfg["requests"].get("headers", {}).copy()
+    headers["User-Agent"] = pick_ua(cfg)
+    
     for attempt in range(1, retries + 1):
         try:
-            r = session.get(url, headers=headers, timeout=timeout)
+            r = session.request(method, url, headers=headers, timeout=timeout, **kwargs)
             r.raise_for_status()
-            return _fix_encoding(r)
+            if not r.encoding or r.encoding.lower() in ("iso-8859-1", "ascii"):
+                r.encoding = r.apparent_encoding
+            return r.text
         except requests.RequestException as e:
             if attempt == retries:
-                logger.error(f"GET failed {url} -> {e}")
+                logging.error(f"{method.upper()} failed {url} -> {e}")
                 raise
             time.sleep(backoff * attempt + random.random())
+    return "" # Should not be reached
 
-def http_post(session: requests.Session, url: str, data: dict, cfg: dict, logger: logging.Logger) -> str:
-    timeout = cfg["requests"]["timeout"]
-    retries = cfg["requests"]["retries"]
-    backoff = float(cfg["requests"]["backoff_base"])
-    headers = (cfg["requests"].get("headers") or {}).copy()
-    headers["User-Agent"] = _pick_ua(cfg)
-    headers["Referer"] = urljoin(cfg["requests"]["base"], cfg["requests"]["page_url"])
-    for attempt in range(1, retries + 1):
-        try:
-            r = session.post(url, headers=headers, data=data, timeout=timeout)
-            r.raise_for_status()
-            return _fix_encoding(r)
-        except requests.RequestException as e:
-            if attempt == retries:
-                logger.error(f"POST failed {url} -> {e}")
-                raise
-            time.sleep(backoff * attempt + random.random())
-
-
-# ---------------- Helpers ----------------
-def clean(s: str) -> str:
-    return " ".join((s or "").strip().split())
-
-_SAFE_CHARS_RE = re.compile(r"[^0-9A-Za-z가-힣._ -]+")
-
-def slugify(s: str, max_len: int = 80) -> str:
-    """파일/폴더명으로 안전하게 변환(한글 유지, 금지문자 제거)."""
-    s = clean(s)
-    s = _SAFE_CHARS_RE.sub("_", s)
-    return s[:max_len].rstrip(" ._-")
-
-def ensure_dir(p: str) -> None:
-    os.makedirs(p, exist_ok=True)
-
-def save_text(path: str, text: str) -> None:
-    ensure_dir(os.path.dirname(path) or ".")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
-
-
-# ---------------- Extraction (no parsing) ----------------
-def get_cate_items(session: requests.Session, cate_no: str, cfg: dict, logger: logging.Logger) -> List[Dict[str, str]]:
-    """AJAX cate 리스트에서 하위 버튼(label, cateSubNo)만 추출."""
+# ------------------- Endpoint Functions (config 기반으로 수정) -------------------
+def get_cate_items(session, cate_no: str, cfg, logger) -> List[Dict[str, str]]:
     url = urljoin(cfg["requests"]["base"], cfg["requests"]["ajax_cate_list"])
-    html = http_post(session, url, {"cateNo": cate_no}, cfg, logger)
+    html = http_request(session, "post", url, cfg, data={"cateNo": cate_no})
+    
     soup = BeautifulSoup(html, "html.parser")
-
+    items = []
     sel = cfg["selectors"]
-    items: List[Dict[str, str]] = []
+    
     for btn in soup.select(sel["cate_button"]):
-        # 라벨 소스: text 또는 attr:xxx
         label_src = sel.get("cate_button_label", "text")
         if label_src == "text":
-            label = clean(btn.get_text())
+            label = " ".join((btn.get_text() or "").strip().split())
         elif label_src.startswith("attr:"):
-            label = clean(btn.get(label_src.split(":", 1)[1]) or "")
+            label = btn.get(label_src.split(":", 1)[1], "").strip()
         else:
-            label = clean(btn.get_text())
+            label = " ".join((btn.get_text() or "").strip().split())
 
-        sub = btn.get(sel["cate_button_sub_attr"]) or ""
-        if sub:
+        sub = btn.get(sel["cate_button_sub_attr"], "").strip()
+        if label and sub:
             items.append({"label": label, "cateSubNo": sub})
     return items
 
+def get_sub_fragment(session, cate_no: str, cate_sub_no: str, cfg, logger):
+    url = urljoin(cfg["requests"]["base"], cfg["requests"]["ajax_sub_list"])
+    return http_request(session, "post", url, cfg, data={"cateNo": cate_no, "cateSubNo": cate_sub_no})
 
-# ---------------- Main ----------------
+# ------------------- Main Fetcher Logic -------------------
+def sanitize_filename(name: str) -> str:
+    return re.sub(r'[\\/*?:"<>|]', "", name).strip()
+
 def main():
-    cfg = load_cfg("config/gongimnara.yaml")
+    cfg = load_cfg("./config/official_fee/gongimnara.yaml")
     logger = setup_logger(cfg["general"]["log_file"])
-    raw_dir = cfg["general"]["raw_dir"]
-    ensure_dir(raw_dir)
+    session = requests.Session()
+    
+    output_base_dir = cfg["general"]["raw_dir"]
+    os.makedirs(output_base_dir, exist_ok=True)
+    logger.info(f"HTML 파일을 저장할 기본 폴더: {output_base_dir}")
 
-    session = _new_session(cfg)
+    http_request(session, "get", urljoin(cfg["requests"]["base"], cfg["requests"]["page_url"]), cfg)
 
-    # Warm-up (쿠키/리퍼러)
-    warm_url = urljoin(cfg["requests"]["base"], cfg["requests"]["page_url"])
-    http_get(session, warm_url, cfg, logger)
-
-    for cate_no, cate_name in cfg["targets"].get("cate", {}).items():
-        cate_name_slug = slugify(cate_name) if cate_name else "unknown"
-        cate_dir = os.path.join(raw_dir, f"cate_{cate_no}__{cate_name_slug}")
-        ensure_dir(cate_dir)
-
-        logger.info(f"[CATE] {cate_no} - {cate_name}")
-        # 하위 목록 HTML 저장(디버깅/재파싱용)
-        list_html = http_post(
-            session,
-            urljoin(cfg["requests"]["base"], cfg["requests"]["ajax_cate_list"]),
-            {"cateNo": cate_no},
-            cfg, logger
-        )
-        save_text(os.path.join(cate_dir, "cate_list.html"), list_html)
-
-        # 서브 항목 HTML 저장
+    for cate_no, cate_name in cfg["targets"]["cate"].items():
+        cate_dir = os.path.join(output_base_dir, sanitize_filename(cate_name))
+        os.makedirs(cate_dir, exist_ok=True)
+        
+        logger.info(f"'{cate_name}' 카테고리 항목을 가져오는 중...")
         items = get_cate_items(session, cate_no, cfg, logger)
-        for i, it in enumerate(items, 1):
-            sub_no = it["cateSubNo"]
-            label = it["label"]
-            label_slug = slugify(label)
+        
+        total = len(items)
+        for i, item in enumerate(items, 1):
+            label, sub_no = item["label"], item["cateSubNo"]
+            safe_label = sanitize_filename(label)
+            output_path = os.path.join(cate_dir, f"{safe_label}.html")
 
-            logger.info(f"  - [{i}/{len(items)}] sub={sub_no} label={label}")
-
-            frag_html = http_post(
-                session,
-                urljoin(cfg["requests"]["base"], cfg["requests"]["ajax_sub_list"]),
-                {"cateNo": cate_no, "cateSubNo": sub_no},
-                cfg, logger
-            )
-
-            # 파일명 규칙: sub_<subNo>__<labelSlug>.html
-            out_path = os.path.join(cate_dir, f"sub_{sub_no}__{label_slug}.html")
-            save_text(out_path, frag_html)
-
+            try:
+                logger.info(f"[{cate_name} ({i}/{total})] '{label}' 데이터 가져오는 중...")
+                fragment_html = get_sub_fragment(session, cate_no, sub_no, cfg, logger)
+                
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(fragment_html)
+                
+                logger.info(f" -> 성공적으로 '{output_path}'에 저장했습니다.")
+            except Exception as e:
+                logger.error(f"'{label}' 처리 중 오류 발생: {e}", exc_info=True)
+            
             time.sleep(random.uniform(cfg["requests"]["delay_min"], cfg["requests"]["delay_max"]))
-
-    logger.info("[DONE] Download complete (no manifest).")
-
+    
+    logger.info("[FETCHING COMPLETE] 모든 HTML 파일 저장을 완료했습니다.")
 
 if __name__ == "__main__":
     main()

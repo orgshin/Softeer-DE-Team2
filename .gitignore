@@ -3,3 +3,5 @@ test/
 app/
 crawling/
 spark_jobs/
+logs/
+__pycache__
