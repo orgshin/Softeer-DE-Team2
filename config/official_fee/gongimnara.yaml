@@ -45,3 +45,8 @@ titles:
 
 parsing:
   amount_time_regex: "(?P<amount>[\\d,]+)\\s*원?(?:\\s*\\((?P<time>[^)]+)\\))?"
+
+official_fee:
+  bucket: "team2-html-out"  # Parquet 파일이 있는 버킷
+  prefix: "official_fee/gongimnara" # Parquet 파일이 있는 경로 (마지막 / 제외)
+  table_name: "official_fee"
