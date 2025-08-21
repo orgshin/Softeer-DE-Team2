@@ -3,12 +3,10 @@ test/
 app/
 crawling/
 spark_jobs/
-<<<<<<< HEAD
 crawling/
 include/
 data-pipeline/logs/
 __pycache__/
-=======
 logs/
-__pycache__
->>>>>>> develop
+*.log
+.env
