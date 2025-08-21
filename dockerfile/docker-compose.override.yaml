@@ -6,7 +6,7 @@ services:
     hostname: minio
     restart: always
     volumes:
-      - ./include/data/minio:/data
+      - ${AIRFLOW_PROJ_DIR:-.}/include/data/minio:/data
     ports:
       - 9000:9000
       - 9001:9001
@@ -23,10 +23,10 @@ services:
   spark:
     image: docker.io/joonlee0228/learn-apache-spark:3.5.3
     volumes:
-      - ./data-pipeline/spark_jobs/:/opt/bitnami/spark/work
-      - ./data-pipeline/spark_jobs/spark_conf/log4j2.properties:/opt/bitnami/spark/conf/log4j2.properties
-      - ./data-pipeline/spark_jobs/spark_conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf
-      - ./data-pipeline/spark_jobs/spark-events:/tmp/spark-events
+      - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/spark_jobs/:/opt/bitnami/spark/work
+      - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/spark_jobs/spark_conf/log4j2.properties:/opt/bitnami/spark/conf/log4j2.properties
+      - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/spark_jobs/spark_conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf
+      - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/spark_jobs/spark-events:/tmp/spark-events
     environment:
       - SPARK_MODE=master
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
@@ -43,7 +43,7 @@ services:
   spark-worker:
     image: docker.io/joonlee0228/learn-apache-spark:3.5.3
     volumes:
-      - ./data-pipeline/spark_jobs/working-dir:/opt/bitnami/spark/work
+      - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/spark_jobs/working-dir:/opt/bitnami/spark/work
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark:7077

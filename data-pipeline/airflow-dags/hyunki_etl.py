@@ -5,6 +5,7 @@ from airflow.models.dag import DAG
 from airflow.operators.empty import EmptyOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.models.connection import Connection
 from airflow.hooks.base import BaseHook
 
@@ -20,9 +21,8 @@ with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
 S3_CONFIG = CONFIG["s3"]
 PARSER_CONFIG = CONFIG["parser"]
 
-# 1. S3 경로 구성 (템플릿이 적용될 수 있도록 수정)
+# 1. S3 경로 구성
 SOURCE_PATH = f"s3a://{S3_CONFIG['source_bucket']}/{S3_CONFIG['source_prefix']}/*/*.html"
-# ✨ 수정: f-string 대신 문자열 접합을 사용하여 Jinja 템플릿을 보존합니다.
 DEST_PATH = f"s3a://{S3_CONFIG['dest_bucket']}/{S3_CONFIG['dest_prefix']}/"
 
 # 2. 파싱 규칙을 JSON 문자열로 직렬화
@@ -34,16 +34,21 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
+    # MinIO 등 S3 호환 스토리지를 사용하는 경우 아래 두 줄의 주석을 해제하고 사용하세요.
+    "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
+    "spark.hadoop.fs.s3a.path.style.access": "true",
+    "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
+    "spark.hadoop.fs.s3a.attempts.maximum": "1",
+    "spark.hadoop.fs.s3a.connection.establish.timeout": "5000",
+    "spark.hadoop.fs.s3a.connection.timeout": "10000"
 }
-
-print(SPARK_S3_CONF)
 
 with DAG(
     dag_id="hyunki_fetch_and_spark_parse_pipeline",
     start_date=pendulum.datetime(2025, 8, 20, tz="Asia/Seoul"),
     schedule=None,
     catchup=False,
-    tags=["hyunki", "spark", "s3", "etl"],
+    tags=["hyunki", "spark", "s3", "parser"],
 ) as dag:
     SPARK_CONN_ID = "conn_spark"
     SPARK_JOB_FILE_PATH = "/opt/bitnami/spark/work/parsers/parts/hyunki_parser.py"
@@ -56,20 +61,27 @@ with DAG(
         op_kwargs={"config_path": CONFIG_FILE_PATH},
     )
 
-    submit_spark_job_task = SparkSubmitOperator(
+    submit_spark_parser_job = SparkSubmitOperator(
         task_id="submit_spark_parser_job",
         conn_id=SPARK_CONN_ID,
         application=SPARK_JOB_FILE_PATH,
         application_args=[
             "--source-path", SOURCE_PATH,
-            "--dest-path", DEST_PATH, # 이제 이 부분은 Airflow에 의해 올바르게 렌더링됩니다.
+            "--dest-path", DEST_PATH,
             "--parser-config-json", PARSER_CONFIG_JSON,
         ],
-        packages='org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262',
+        packages='org.apache.hadoop:hadoop-aws:3.3.4',
         conf=SPARK_S3_CONF,
         verbose=True,
     )
 
+    # 이 작업이 성공하면 'hyunki_merge_and_load_to_postgres' DAG를 실행시킵니다.
+    trigger_merge_and_load_dag = TriggerDagRunOperator(
+        task_id="trigger_merge_and_load_dag",
+        trigger_dag_id="hyunki_merge_and_load_to_postgres",  # 새로 만들 DAG의 ID
+        wait_for_completion=False, # 다음 DAG가 끝날 때까지 기다리지 않음
+    )
+
     end = EmptyOperator(task_id="end")
 
-    start >> fetch_html_task >> submit_spark_job_task >> end
+    start >> fetch_html_task >> submit_spark_parser_job >> trigger_merge_and_load_dag >> end
