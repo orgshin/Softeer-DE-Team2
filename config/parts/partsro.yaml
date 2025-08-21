@@ -1,0 +1,51 @@
+# ======================================================
+# Partsro 부품 ETL 파이프라인 설정 파일
+# ======================================================
+
+# S3 경로 설정
+s3:
+  aws_conn_id: "conn_s3"
+  source_bucket: "team2-html-raw"
+  source_prefix: "parts/partsro"
+  dest_bucket: "team2-html-out"
+  dest_prefix: "parts/partsro"
+
+# 웹 스크래핑(Fetcher) 관련 설정
+fetcher:
+  site:
+    base_url: "https://m.partsro.com/"
+    target_categories: ["엔진", "미션", "샤시", "바디", "트림"]
+  selenium:
+    page_load_timeout: 45
+    user_agents:
+      - "Mozilla/5.0 (Linux; Android 14; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
+      - "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+      - "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
+  xpaths:
+    btn_all:
+      - "//a[contains(.,'제품전체보기')]"
+      - "//button[contains(.,'제품전체보기')]"
+      - "//a[contains(.,'제품 전체보기')]"
+      - "//button[contains(.,'제품 전체보기')]"
+    category_template: "//a[normalize-space(text())='{cat}' or contains(.,'{cat}')]"
+    load_more:
+      - "//button[contains(.,'더보기') or contains(.,'더 보기')]"
+      - "//a[contains(.,'더보기') or contains(.,'더 보기')]"
+
+# HTML 파싱(Spark Job) 관련 설정
+parser:
+  selectors:
+    # 상품 리스트에서 개별 상품 카드를 가장 폭넓게 선택할 수 있는 선택자
+    card: "ul[class*='prd'] li, ul[class*='product'] li, div[class*='prd'] .item, div[class*='product'] .item, ul li"
+  
+  regex:
+    # 가격 추출 (예: "304,660원")
+    price: '(\d[\d,]*)\s*원'
+    # 이름이 가격만으로 이루어졌는지 확인
+    price_only: '^\s*\d[\d,]*\s*원\s*$'
+    # 괄호 안의 품번 추출 (예: "(25430J7400)")
+    code_in_paren: '\(([A-Z0-9-]{5,})\)'
+    # 영문을 포함하는 5자 이상의 알파벳/숫자/하이픈 조합 (괄호 밖 품번 후보 1)
+    code_alnum_with_letter: '\b(?=[A-Z0-9-]{5,}\b)(?=.*[A-Z])[A-Z0-9-]+\b'
+    # 8자 이상의 숫자만 있는 조합 (괄호 밖 품번 후보 2)
+    code_numeric_long: '\b\d{8,}\b'
