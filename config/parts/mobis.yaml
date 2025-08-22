@@ -100,3 +100,18 @@ chrome_options:
 
 start_point: [0, 0, 0, 0]
 end_point: null
+
+s3:
+  # Airflow에 등록된 AWS Connection ID
+  aws_conn_id: "conn_s3"
+  # Mobis Parquet 파일이 있는 S3 버킷
+  bucket: "team2-html-out"
+  # Mobis Parquet 파일이 있는 경로 (prefix)
+  prefix: "parts/mobis"
+
+# PostgreSQL 적재 설정
+postgres:
+  # Airflow에 등록된 PostgreSQL Connection ID
+  pg_conn_id: "conn_postgres"
+  # 최종 데이터를 적재할 테이블 이름
+  table_name: "mobis_parts"

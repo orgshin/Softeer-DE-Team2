@@ -61,8 +61,3 @@ parser:
   regex:
     part_code: "\\(([^)]+)\\)\\s*$"
     price: "[\\d,]+"
-
-postgres:
-  pg_conn_id: "conn_postgres"
-  parts_table_name: "parts"
-  avg_price_table_name: "parts_avg_price"
