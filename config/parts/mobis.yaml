@@ -1,102 +1,101 @@
-base_url: "https://www.mobis-as.com/simple_search_part.do"
-html_paths: "data/raw/parts/mobis"
-log_filename: "data/log/parts/mobis.log"
-csv_filename: "data/raw/parts/mobis.csv"
-output_file: "data/raw/parts/mobis_parts.parquet"
+# S3 및 AWS 연결 설정
+s3:
+  aws_conn_id: "conn_s3"
+  source_bucket: "team2-html-raw"   # HTML 원본 파일이 저장될 버킷
+  dest_bucket: "team2-html-out"     # Parquet 결과물이 저장될 버킷
+  # 로컬 S3 호환 스토리지(예: MinIO) 사용 시 엔드포인트 URL
+  s3_endpoint: "http://minio:9000" 
 
-manufacturers: ["현대", "기아"]
-vehicle_types: ["승용", "상용"]
+# Fetcher (크롤러) 설정
+fetcher:
+  base_url: "https://www.mobis-as.com/simple_search_part.do"
+  manufacturers: ["현대", "기아"]
+  vehicle_types: ["승용", "상용"]
+  part_keywords:
+    - "엔진"
+    - "오일"
+    - "필터"
+    - "라디에이터"
+    - "냉각"
+    - "워터펌프"
+    - "벨트"
+    - "체인"
+    - "점화"
+    - "플러그"
+    - "코일"
+    - "스로틀"
+    - "흡기"
+    - "배기"
+    - "머플러"
+    - "촉매"
+    - "연료"
+    - "인젝터"
+    - "에어컨"
+    - "컴프레서"
+    - "콘덴서"
+    - "히터"
+    - "블로워"
+    - "미션"
+    - "변속기"
+    - "클러치"
+    - "샤프트"
+    - "베어링"
+    - "허브"
+    - "브레이크"
+    - "패드"
+    - "로터"
+    - "캘리퍼"
+    - "호스"
+    - "쇼크"
+    - "댐퍼"
+    - "스프링"
+    - "로워암"
+    - "컨트롤암"
+    - "볼조인트"
+    - "타이로드"
+    - "스티어링"
+    - "배터리"
+    - "발전기"
+    - "스타터"
+    - "램프"
+    - "헤드램프"
+    - "테일램프"
+    - "안개등"
+    - "센서"
+    - "범퍼"
+    - "그릴"
+    - "휀더"
+    - "후드"
+    - "도어"
+    - "미러"
+    - "유리"
+    - "와이퍼"
+    - "몰딩"
+    - "가스켓"
+    - "오링"
+    - "브라켓"
+    - "파이프"
+    - "덕트"
+    - "커버"
+  
+  timeouts:
+    idle_timeout: 25
+  cooldowns:
+    kw_cooldown: [2.0, 4.0]
+    page_pause: [1.2, 1.8]
+  
+  chrome_options:
+    headless: true
+    user_agents:
+      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    disable_automation_flags: true
 
-part_keywords:
-  - "엔진"
-  - "오일"
-  - "필터"
-  - "라디에이터"
-  - "냉각"
-  - "워터펌프"
-  - "벨트"
-  - "체인"
-  - "점화"
-  - "플러그"
-  - "코일"
-  - "스로틀"
-  - "흡기"
-  - "배기"
-  - "머플러"
-  - "촉매"
-  - "연료"
-  - "인젝터"
-  - "에어컨"
-  - "컴프레서"
-  - "콘덴서"
-  - "히터"
-  - "블로워"
-  - "미션"
-  - "변속기"
-  - "클러치"
-  - "샤프트"
-  - "베어링"
-  - "허브"
-  - "브레이크"
-  - "패드"
-  - "로터"
-  - "캘리퍼"
-  - "호스"
-  - "쇼크"
-  - "댐퍼"
-  - "스프링"
-  - "로워암"
-  - "컨트롤암"
-  - "볼조인트"
-  - "타이로드"
-  - "스티어링"
-  - "배터리"
-  - "발전기"
-  - "스타터"
-  - "램프"
-  - "헤드램프"
-  - "테일램프"
-  - "안개등"
-  - "센서"
-  - "범퍼"
-  - "그릴"
-  - "휀더"
-  - "후드"
-  - "도어"
-  - "미러"
-  - "유리"
-  - "와이퍼"
-  - "몰딩"
-  - "가스켓"
-  - "오링"
-  - "브라켓"
-  - "파이프"
-  - "덕트"
-  - "커버"
+# Parser (Spark) 설정
+parser:
+  # 파싱에 필요한 CSS 셀렉터 정보
+  selectors:
+    table_wrap: "#table-wrap div.table-list.sp-table"
+    row_group: "ul.table-d"
+    row: "li[role='row']"
+    cell: "span.t-td[role='cell']"
 
-timeouts:
-  idle_timeout: 25
-  quick_empty_timeout: 4
-  rows_ready_timeout: 12
-
-cooldowns:
-  kw_cooldown: [2.0, 4.0]
-  model_cooldown: [2.0, 4.0]
-  vtype_cooldown: [2.0, 4.0]
-  long_rest_every: 10
-  long_rest: [5, 10]
-  page_pause: [1.2, 1.8]
-
-chrome_options:
-  headless: false
-  window_size: [1400, 960]
-  user_agents:
-    -  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    -  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
-    -  "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.90 Safari/537.36"
-    -  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.199 Safari/537.36"
-    -  "Mozilla/5.0 (Windows NT 10.0; Win64; rv:118.0) Gecko/20100101 Firefox/118.0"
-  disable_automation_flags: True
-
-start_point: [0, 0, 0, 0]
-end_point: null
