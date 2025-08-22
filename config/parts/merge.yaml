@@ -1,0 +1,18 @@
+# config/parts_etl.yaml
+# 모든 parts 소스에 대한 통합 ETL 설정을 정의합니다.
+
+s3:
+  # Airflow에 등록된 AWS Connection ID
+  aws_conn_id: "conn_s3" 
+  # 데이터가 저장된 S3 버킷 이름
+  base_bucket: "team2-html-out"
+  # 처리할 데이터의 최상위 경로 (prefix)
+  base_prefix: "parts"
+
+postgres:
+  # Airflow에 등록된 PostgreSQL Connection ID
+  pg_conn_id: "conn_postgres"
+  # 1차 병합/정제된 데이터가 저장될 테이블 이름
+  parts_table_name: "parts_merged"
+  # 2차 집계된 데이터가 저장될 테이블 이름
+  avg_price_table_name: "parts_avg_price"
