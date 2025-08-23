@@ -1,3 +1,4 @@
+# 이 파일은 수정할 필요가 없습니다.
 import pendulum
 import yaml
 from airflow.models.dag import DAG
@@ -24,7 +25,6 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": s3_conn.login,
     "spark.hadoop.fs.s3a.secret.key": s3_conn.password,
-    "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
     "spark.hadoop.fs.s3a.path.style.access": "true",
 }
 
@@ -40,12 +40,10 @@ with DAG(
     doc_md="S3의 mobis.parquet 파일을 읽어 PostgreSQL에 적재하는 전용 파이프라인입니다."
 ) as dag:
     SPARK_CONN_ID = "conn_spark"
-    # ✨ 실행할 Spark 스크립트 파일을 지정합니다.
     SPARK_MOBIS_JOB_FILE = "/opt/bitnami/spark/work/transformation/load_mobis_to_postgres.py"
 
     start = EmptyOperator(task_id="start")
 
-    # Task 1: Mobis Parquet 파일을 읽어 PostgreSQL에 적재
     submit_spark_mobis_task = SparkSubmitOperator(
         task_id="submit_spark_load_mobis_task",
         conn_id=SPARK_CONN_ID,
@@ -57,14 +55,14 @@ with DAG(
             "--pg-db", pg_conn.schema,
             "--pg-table", POSTGRES_CONFIG["table_name"],
             "--pg-user", pg_conn.login,
-            "--pg-password", pg_conn.password,  
-            "--pg-sslmode", "require",      
+            "--pg-password", pg_conn.password,
+            "--pg-sslmode", "require",
         ],
         packages='org.apache.hadoop:hadoop-aws:3.3.4,org.postgresql:postgresql:42.7.3',
         conf=SPARK_S3_CONF,
         verbose=True,
     )
-    
+
     end = EmptyOperator(task_id="end")
 
     start >> submit_spark_mobis_task >> end

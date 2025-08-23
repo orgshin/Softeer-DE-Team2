@@ -5,7 +5,6 @@ from airflow.models.dag import DAG
 from airflow.operators.empty import EmptyOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.operators.python import PythonOperator
-from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.models.connection import Connection
 from airflow.hooks.base import BaseHook
 
@@ -34,19 +33,14 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
-    # MinIO 등 S3 호환 스토리지를 사용하는 경우 아래 두 줄의 주석을 해제하고 사용하세요.
-    "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
     "spark.hadoop.fs.s3a.path.style.access": "true",
-    "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
-    "spark.hadoop.fs.s3a.attempts.maximum": "1",
-    "spark.hadoop.fs.s3a.connection.establish.timeout": "5000",
-    "spark.hadoop.fs.s3a.connection.timeout": "10000"
 }
 
 with DAG(
     dag_id="hyunki_fetch_and_spark_parse_pipeline",
-    start_date=pendulum.datetime(2025, 8, 20, tz="Asia/Seoul"),
-    schedule=None,
+    # 2025년 8월 29일부터 매주 금요일 0시에 실행
+    start_date=pendulum.datetime(2025, 8, 29, tz="Asia/Seoul"),
+    schedule="0 0 * * FRI", # 1주일에 한번 (매주 금요일 0시)
     catchup=False,
     tags=["hyunki", "spark", "s3", "parser"],
 ) as dag:
@@ -75,13 +69,6 @@ with DAG(
         verbose=True,
     )
 
-    # 이 작업이 성공하면 'hyunki_merge_and_load_to_postgres' DAG를 실행시킵니다.
-    trigger_merge_and_load_dag = TriggerDagRunOperator(
-        task_id="trigger_merge_and_load_dag",
-        trigger_dag_id="hyunki_merge_and_load_to_postgres",  # 새로 만들 DAG의 ID
-        wait_for_completion=False, # 다음 DAG가 끝날 때까지 기다리지 않음
-    )
-
     end = EmptyOperator(task_id="end")
 
-    start >> fetch_html_task >> submit_spark_parser_job >> trigger_merge_and_load_dag >> end
+    start >> fetch_html_task >> submit_spark_parser_job >> end

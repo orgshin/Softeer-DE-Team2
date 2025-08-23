@@ -11,7 +11,7 @@ from airflow.hooks.base import BaseHook
 # Fetcher 함수 임포트
 from parts.partsro_fetcher import run_downloader
 
-# --- YAML 설정 파일 로드 --- 
+# --- YAML 설정 파일 로드 ---
 CONFIG_FILE_PATH = "/opt/airflow/config/parts/partsro.yaml"
 with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
     CONFIG = yaml.safe_load(f)
@@ -30,15 +30,14 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
-    "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
-    "spark.hadoop.fs.s3a.path.style.access": "true",
 }
 
 # --- DAG 정의 ---
 with DAG(
     dag_id="partsro_fetch_and_spark_parse_pipeline",
-    start_date=pendulum.datetime(2025, 8, 20, tz="Asia/Seoul"),
-    schedule=None,
+    # 2025년 8월 29일부터 매주 금요일 0시에 실행
+    start_date=pendulum.datetime(2025, 8, 29, tz="Asia/Seoul"),
+    schedule="0 0 * * FRI", # 1주일에 한번 (매주 금요일 0시)
     catchup=False,
     tags=["partsro", "spark", "s3", "etl"],
 ) as dag:

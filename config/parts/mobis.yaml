@@ -3,8 +3,6 @@ s3:
   aws_conn_id: "conn_s3"
   source_bucket: "team2-html-raw"   # HTML 원본 파일이 저장될 버킷
   dest_bucket: "team2-html-out"     # Parquet 결과물이 저장될 버킷
-  # 로컬 S3 호환 스토리지(예: MinIO) 사용 시 엔드포인트 URL
-  s3_endpoint: "http://minio:9000" 
   prefix: "parts/mobis_parts"
 
 postgres:

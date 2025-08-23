@@ -7,6 +7,7 @@ from airflow.operators.empty import EmptyOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.operators.python import PythonOperator
 from airflow.hooks.base import BaseHook
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator # ✨ Trigger Operator 임포트
 
 # Fetcher 함수 임포트
 from parts.mobis_fetcher import run_fetcher
@@ -31,9 +32,6 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
-    # S3 호환 스토리지(MinIO 등) 사용 시 아래 설정 필요
-    "spark.hadoop.fs.s3a.endpoint": S3_CONFIG.get("s3_endpoint", "s3.amazonaws.com"),
-    "spark.hadoop.fs.s3a.path.style.access": "true",
 }
 
 # --- DAG 정의 ---
@@ -44,20 +42,17 @@ with DAG(
     catchup=False,
     tags=["mobis", "spark", "s3", "v3-pattern"],
 ) as dag:
-    SPARK_CONN_ID = "conn_spark" # Airflow Spark Connection ID
-    # Spark Worker에 배포된 파서 스크립트의 절대 경로
+    SPARK_CONN_ID = "conn_spark"
     SPARK_JOB_FILE_PATH = "/opt/bitnami/spark/work/parsers/parts/mobis_parser.py"
 
     start = EmptyOperator(task_id="start")
 
-    # Fetcher 태스크: 설정 파일 경로만 전달
     fetch_html_task = PythonOperator(
         task_id="fetch_html_to_s3",
         python_callable=run_fetcher,
         op_kwargs={"config_path": CONFIG_FILE_PATH},
     )
 
-    # Parser 태스크: Spark 잡 제출
     submit_spark_job_task = SparkSubmitOperator(
         task_id="submit_spark_parser_job",
         conn_id=SPARK_CONN_ID,
@@ -71,8 +66,15 @@ with DAG(
         conf=SPARK_S3_CONF,
         verbose=True,
     )
+    
+    # ✨ 이 작업이 성공하면 'mobis_parquet_to_postgres_etl' DAG를 실행시킵니다.
+    trigger_load_dag = TriggerDagRunOperator(
+        task_id="trigger_load_to_postgres_dag",
+        trigger_dag_id="mobis_parquet_to_postgres_etl",  # 실행시킬 DAG의 ID
+        wait_for_completion=False, # 다음 DAG가 끝날 때까지 기다리지 않음
+    )
 
     end = EmptyOperator(task_id="end")
 
-    # 워크플로우 정의
-    start >> fetch_html_task >> submit_spark_job_task >> end
+    # ✨ 워크플로우에 트리거 태스크 추가
+    start >> fetch_html_task >> submit_spark_job_task >> trigger_load_dag >> end
