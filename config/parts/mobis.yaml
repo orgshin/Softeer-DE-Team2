@@ -5,6 +5,11 @@ s3:
   dest_bucket: "team2-html-out"     # Parquet 결과물이 저장될 버킷
   # 로컬 S3 호환 스토리지(예: MinIO) 사용 시 엔드포인트 URL
   s3_endpoint: "http://minio:9000" 
+  prefix: "parts/mobis_parts"
+
+postgres:
+  pg_conn_id: "conn_postgres"
+  table_name: "mobis_parts"
 
 # Fetcher (크롤러) 설정
 fetcher:
@@ -98,4 +103,3 @@ parser:
     row_group: "ul.table-d"
     row: "li[role='row']"
     cell: "span.t-td[role='cell']"
-

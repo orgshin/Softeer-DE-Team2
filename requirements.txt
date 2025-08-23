@@ -1,6 +1,9 @@
 # crawling
 requests
-beautifulsoup4
+bs4
 PyYAML
 pydantic
 pandas
+lxml
+webdriver_manager
+selenium

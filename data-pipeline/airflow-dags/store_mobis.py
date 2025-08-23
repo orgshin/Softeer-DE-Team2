@@ -16,7 +16,7 @@ S3_CONFIG = CONFIG["s3"]
 POSTGRES_CONFIG = CONFIG["postgres"]
 
 # Spark Job에 전달할 Mobis Parquet 파일의 전체 경로를 구성합니다.
-S3_FILE_PATH = f"s3a://{S3_CONFIG['bucket']}/{S3_CONFIG['prefix']}/mobis.parquet"
+S3_FILE_PATH = f"s3a://{S3_CONFIG['dest_bucket']}/{S3_CONFIG['prefix']}/mobis.parquet"
 
 # Spark가 S3에 접근하기 위한 공통 설정
 s3_conn: Connection = BaseHook.get_connection(S3_CONFIG["aws_conn_id"])
@@ -57,7 +57,8 @@ with DAG(
             "--pg-db", pg_conn.schema,
             "--pg-table", POSTGRES_CONFIG["table_name"],
             "--pg-user", pg_conn.login,
-            "--pg-password", pg_conn.password,
+            "--pg-password", pg_conn.password,  
+            "--pg-sslmode", "require",      
         ],
         packages='org.apache.hadoop:hadoop-aws:3.3.4,org.postgresql:postgresql:42.7.3',
         conf=SPARK_S3_CONF,

@@ -66,6 +66,7 @@ services:
   chrome:
     image: selenium/node-chrome:4.15.0
     shm_size: 2g
+    mem_limit: 4g
     depends_on:
       - selenium-hub
     environment:

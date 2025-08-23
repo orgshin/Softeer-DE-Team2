@@ -1,0 +1,51 @@
+# S3 및 Airflow 연결 설정
+s3:
+  aws_conn_id: "conn_s3"
+  source_bucket: "team2-html-raw"
+  dest_bucket: "team2-html-out"
+  fetcher_prefix: "repair_shop/html"       # HTML 저장 경로: s3://bucket/prefix/날짜/
+  parser_output_prefix: "repair_shop/parquet" # Parquet 결과 저장 경로
+  s3_endpoint: "http://minio:9000"
+
+# Fetcher (URL 수집 및 HTML 저장) 관련 설정
+fetcher:
+  base_url: "https://repair.cardoc.co.kr"
+  start_url: "https://repair.cardoc.co.kr/regions/1168000000/shops"
+  skip_official: True
+  official_keywords: ["공식", "공인바디샵", "Official"]
+
+  # Selenium 원격 드라이버 주소
+  selenium_hub_url: "http://selenium-hub:4444/wd/hub"
+
+  # 타이밍 및 대기 시간
+  timeouts:
+    wait: 25
+    pause: 1.5
+    short_pause: 0.5
+    scroll_pause: 1.0
+    scroll_patience: 10
+    max_scroll_steps: 1800
+    shop_gap: 2.0
+
+# Parser (HTML에서 데이터 추출) 관련 설정
+parser:
+  # 정비소 기본 정보 셀렉터
+  shop_name_css_selectors: # 키 이름 변경
+    - "div.items-center.justify-center span.font-bold"
+    - "h1"
+  address_section_css_selector: 'section:has(> *:contains("위치"))' # 키 이름 및 값 변경
+  
+  # 리뷰 정보 셀렉터
+  review_tab_css_selector: "button[role='tab']:contains('후기')" # 키 이름 및 값 변경
+  review_panel_css_selector: "div[role='tabpanel']" # 키 이름 및 값 변경
+  review_card_css: "div.py-5.space-y-4"
+  
+  # 리뷰 카드 내부 셀렉터 (대부분 CSS였으므로 유지)
+  review_card_selectors:
+    vehicle_title: ".text-sm.font-bold"
+    rating_svg: "svg.w-3.h-3"
+    date: ".text-sm.text-gray-500.font-medium"
+    work_meta_container_css: "div.space-x-1" # 클래스 이름으로 명확화
+    tags_container_css: "div.flex-wrap"      # 클래스 이름으로 명확화
+    content_css: ".whitespace-pre-wrap"
+    reply_container_css: ".w-full.p-4.rounded-2xl.bg-blue-gray-50"
