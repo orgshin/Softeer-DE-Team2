@@ -1,0 +1,10 @@
+# crawling
+requests
+bs4
+PyYAML
+pydantic
+pandas
+lxml
+webdriver_manager
+selenium
+apache-airflow-providers-slack

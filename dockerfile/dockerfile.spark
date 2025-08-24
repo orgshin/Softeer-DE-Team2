@@ -1,0 +1,5 @@
+FROM docker.io/joonlee0228/learn-apache-spark:3.5.3
+
+COPY ./requirements.spark.txt /requirements.spark.txt
+
+RUN pip install --no-cache-dir -r /requirements.spark.txt

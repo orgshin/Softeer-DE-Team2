@@ -1,3 +1,4 @@
+from datetime import timedelta
 import pendulum
 import yaml
 from airflow.models.dag import DAG
@@ -5,11 +6,19 @@ from airflow.operators.empty import EmptyOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.models.connection import Connection
 from airflow.hooks.base import BaseHook
+from slack_alarm import send_slack_alert_on_failure
 
 # --- Mobis 전용 설정 파일을 읽어옵니다 ---
 CONFIG_FILE_PATH = "/opt/airflow/config/parts/mobis.yaml"
 with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
     CONFIG = yaml.safe_load(f)
+
+default_args = {
+    "owner": "airflow",
+    "retries": 1,  # 실패 시 1번 재시도
+    "retry_delay": timedelta(hours=1),  # 재시도 간격은 1시간
+    "on_failure_callback": send_slack_alert_on_failure, # 실패 시 실행할 함수 지정
+}
 
 # --- 설정 변수 구성 ---
 S3_CONFIG = CONFIG["s3"]
@@ -33,10 +42,11 @@ pg_conn: Connection = BaseHook.get_connection(POSTGRES_CONFIG["pg_conn_id"])
 
 with DAG(
     dag_id="mobis_parquet_to_postgres_etl",
-    start_date=pendulum.datetime(2025, 8, 21, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule=None,
     catchup=False,
     tags=["mobis", "spark", "postgres", "etl"],
+    default_args=default_args,
     doc_md="S3의 mobis.parquet 파일을 읽어 PostgreSQL에 적재하는 전용 파이프라인입니다."
 ) as dag:
     SPARK_CONN_ID = "conn_spark"

@@ -1,3 +1,4 @@
+from datetime import timedelta
 import pendulum
 import yaml
 from airflow.models.dag import DAG
@@ -7,12 +8,20 @@ from airflow.operators.empty import EmptyOperator
 # 방금 작성한 Python 스크립트에서 함수를 import 합니다.
 # 이 파일이 Airflow의 PYTHONPATH에 포함된 디렉토리에 있어야 합니다. (e.g., dags/scripts/)
 from transformation.merge_official_fee import merge_s3_parquet_to_postgres
+from slack_alarm import send_slack_alert_on_failure
 
 # --- DAG 파일 상단에서 설정 파일을 한번만 읽습니다 ---
 # ✨ 수정: 설정 파일 경로를 gongimnara.yaml로 변경
 CONFIG_FILE_PATH = "/opt/airflow/config/official_fee/gongimnara.yaml"
 with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
     CONFIG = yaml.safe_load(f)
+
+default_args = {
+    "owner": "airflow",
+    "retries": 1,  # 실패 시 1번 재시도
+    "retry_delay": timedelta(hours=1),  # 재시도 간격은 1시간
+    "on_failure_callback": send_slack_alert_on_failure, # 실패 시 실행할 함수 지정
+}
 
 # --- 공통 설정 변수 구성 ---
 # ✨ 수정: 새로운 YAML 구조에 맞게 설정 값을 가져옵니다.
@@ -24,10 +33,11 @@ POSTGRES_CONN_ID = "conn_postgres" # Airflow에 설정된 기본 Postgres Connec
 
 with DAG(
     dag_id="merge_official_fee_to_postgres",
-    start_date=pendulum.datetime(2025, 8, 21, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule=None,
     catchup=False,
     tags=["official_fee", "s3", "postgres", "gongimnara"],
+    default_args=default_args, 
 ) as dag:
     start = EmptyOperator(task_id="start")
 

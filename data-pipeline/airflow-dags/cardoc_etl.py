@@ -1,5 +1,6 @@
 # cardoc_etl_pipeline.py (형식 유지 / Spark 앱만 교체)
 
+from datetime import timedelta
 import pendulum, yaml
 from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
@@ -7,6 +8,7 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 from airflow.hooks.base import BaseHook
 
 from repair_shop.cardoc_fetcher import run_fetcher
+from slack_alarm import send_slack_alert_on_failure
 
 CONFIG_FILE_PATH = "/opt/airflow/config/repair_shop/cardoc.yaml"
 with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
@@ -23,12 +25,20 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.path.style.access": "true",
 }
 
+default_args = {
+    "owner": "airflow",
+    "retries": 1,  # 실패 시 1번 재시도
+    "retry_delay": timedelta(hours=1),  # 재시도 간격은 1시간
+    "on_failure_callback": send_slack_alert_on_failure, # 실패 시 실행할 함수 지정
+}
+
 with DAG(
     dag_id="cardoc_etl_pipeline",
-    start_date=pendulum.datetime(2025, 8, 23, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule="0 3 * * *",
     catchup=False,
     tags=["cardoc", "etl", "spark", "s3"],
+    default_args=default_args,
 ) as dag:
     
     fetch_html_task = PythonOperator(

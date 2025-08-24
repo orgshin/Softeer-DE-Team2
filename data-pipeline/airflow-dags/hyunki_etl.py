@@ -1,6 +1,8 @@
 import json
 import pendulum
 import yaml
+from datetime import timedelta  # 👈 1. 시간 간격을 위해 timedelta import
+
 from airflow.models.dag import DAG
 from airflow.operators.empty import EmptyOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
@@ -8,9 +10,11 @@ from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.models.connection import Connection
 from airflow.hooks.base import BaseHook
+from airflow.providers.slack.hooks.slack_webhook import SlackWebhookHook # 👈 2. Slack Hook import
 
 # 실제 fetcher 스크립트에서 run_downloader 함수를 import 합니다.
 from parts.hyunki_fetcher import run_downloader
+from slack_alarm import send_slack_alert_on_failure
 
 # --- DAG 파일 상단에서 설정 파일을 한번만 읽습니다 ---
 CONFIG_FILE_PATH = "/opt/airflow/config/parts/hyunki.yaml"
@@ -20,21 +24,14 @@ with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
 # --- Spark Job에 전달할 인자들을 구성합니다 ---
 S3_CONFIG = CONFIG["s3"]
 PARSER_CONFIG = CONFIG["parser"]
-
-# 1. S3 경로 구성
 SOURCE_PATH = f"s3a://{S3_CONFIG['source_bucket']}/{S3_CONFIG['source_prefix']}/*/*.html"
 DEST_PATH = f"s3a://{S3_CONFIG['dest_bucket']}/{S3_CONFIG['dest_prefix']}/"
-
-# 2. 파싱 규칙을 JSON 문자열로 직렬화
 PARSER_CONFIG_JSON = json.dumps(PARSER_CONFIG)
-
-# 3. Spark가 S3에 접근하기 위한 AWS 인증 정보 및 Hadoop 설정
 conn: Connection = BaseHook.get_connection(S3_CONFIG["aws_conn_id"])
 SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
-    # MinIO 등 S3 호환 스토리지를 사용하는 경우 아래 두 줄의 주석을 해제하고 사용하세요.
     "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
     "spark.hadoop.fs.s3a.path.style.access": "true",
     "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
@@ -43,12 +40,22 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.connection.timeout": "10000"
 }
 
+# ⚙️ 4. 모든 Task에 적용될 기본 인자(default_args) 설정
+default_args = {
+    "owner": "airflow",
+    "retries": 1,  # 실패 시 1번 재시도
+    "retry_delay": timedelta(hours=1),  # 재시도 간격은 1시간
+    "on_failure_callback": send_slack_alert_on_failure, # 실패 시 실행할 함수 지정
+}
+
+
 with DAG(
     dag_id="hyunki_fetch_and_spark_parse_pipeline",
-    start_date=pendulum.datetime(2025, 8, 20, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule=None,
     catchup=False,
     tags=["hyunki", "spark", "s3", "parser"],
+    default_args=default_args, # 👈 5. DAG에 default_args 적용
 ) as dag:
     SPARK_CONN_ID = "conn_spark"
     SPARK_JOB_FILE_PATH = "/opt/bitnami/spark/work/parsers/parts/hyunki_parser.py"
@@ -75,11 +82,10 @@ with DAG(
         verbose=True,
     )
 
-    # 이 작업이 성공하면 'hyunki_merge_and_load_to_postgres' DAG를 실행시킵니다.
     trigger_merge_and_load_dag = TriggerDagRunOperator(
         task_id="trigger_merge_and_load_dag",
-        trigger_dag_id="hyunki_merge_and_load_to_postgres",  # 새로 만들 DAG의 ID
-        wait_for_completion=False, # 다음 DAG가 끝날 때까지 기다리지 않음
+        trigger_dag_id="hyunki_merge_and_load_to_postgres",
+        wait_for_completion=False,
     )
 
     end = EmptyOperator(task_id="end")

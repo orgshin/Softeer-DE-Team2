@@ -1,3 +1,4 @@
+from datetime import timedelta
 import json
 import pendulum
 import yaml
@@ -10,11 +11,19 @@ from airflow.hooks.base import BaseHook
 
 # Fetcher 함수 임포트
 from parts.partsro_fetcher import run_downloader
+from slack_alarm import send_slack_alert_on_failure
 
 # --- YAML 설정 파일 로드 --- 
 CONFIG_FILE_PATH = "/opt/airflow/config/parts/partsro.yaml"
 with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
     CONFIG = yaml.safe_load(f)
+
+default_args = {
+    "owner": "airflow",
+    "retries": 1,  # 실패 시 1번 재시도
+    "retry_delay": timedelta(hours=1),  # 재시도 간격은 1시간
+    "on_failure_callback": send_slack_alert_on_failure, # 실패 시 실행할 함수 지정
+}
 
 # --- Spark Job 인자 준비 ---
 S3_CONFIG = CONFIG["s3"]
@@ -37,10 +46,11 @@ SPARK_S3_CONF = {
 # --- DAG 정의 ---
 with DAG(
     dag_id="partsro_fetch_and_spark_parse_pipeline",
-    start_date=pendulum.datetime(2025, 8, 20, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule=None,
     catchup=False,
     tags=["partsro", "spark", "s3", "etl"],
+    default_args=default_args,
 ) as dag:
     SPARK_CONN_ID = "conn_spark"
     # Spark Worker에 있는 파서 스크립트 경로

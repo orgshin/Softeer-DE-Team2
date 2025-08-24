@@ -1,3 +1,4 @@
+from datetime import timedelta
 import pendulum
 import yaml
 from airflow.models.dag import DAG
@@ -5,6 +6,8 @@ from airflow.operators.empty import EmptyOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.models.connection import Connection
 from airflow.hooks.base import BaseHook
+
+from slack_alarm import send_slack_alert_on_failure
 
 # --- 범용 설정 파일을 읽어옵니다 ---
 CONFIG_FILE_PATH = "/opt/airflow/config/parts/merge.yaml"
@@ -27,16 +30,23 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
     "spark.hadoop.fs.s3a.path.style.access": "true",
 }
+default_args = {
+    "owner": "airflow",
+    "retries": 1,  # 실패 시 1번 재시도
+    "retry_delay": timedelta(hours=1),  # 재시도 간격은 1시간
+    "on_failure_callback": send_slack_alert_on_failure, # 실패 시 실행할 함수 지정
+}
 
 # PostgreSQL 접속 정보 구성
 pg_conn: Connection = BaseHook.get_connection(POSTGRES_CONFIG["pg_conn_id"])
 
 with DAG(
     dag_id="parts_etl_merge_and_aggregate_all",
-    start_date=pendulum.datetime(2025, 8, 21, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule=None,
     catchup=False,
     tags=["parts", "spark", "postgres", "etl", "unified"],
+    default_args=default_args, 
     doc_md="S3 'parts' 경로 하위의 모든 소스 데이터를 병합하고, 그 결과를 집계하는 통합 ETL 파이프라인입니다."
 ) as dag:
     SPARK_CONN_ID = "conn_spark"

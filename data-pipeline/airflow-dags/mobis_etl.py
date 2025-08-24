@@ -1,4 +1,5 @@
 # /opt/airflow/dags/mobis_dag.py
+from datetime import timedelta
 import json
 import pendulum
 import yaml
@@ -10,7 +11,14 @@ from airflow.hooks.base import BaseHook
 
 # Fetcher 함수 임포트
 from parts.mobis_fetcher import run_fetcher
+from slack_alarm import send_slack_alert_on_failure
 
+default_args = {
+    "owner": "airflow",
+    "retries": 1,  # 실패 시 1번 재시도
+    "retry_delay": timedelta(hours=1),  # 재시도 간격은 1시간
+    "on_failure_callback": send_slack_alert_on_failure, # 실패 시 실행할 함수 지정
+}
 # --- YAML 설정 파일 로드 ---
 CONFIG_FILE_PATH = "/opt/airflow/config/parts/mobis.yaml"
 with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
@@ -39,10 +47,11 @@ SPARK_S3_CONF = {
 # --- DAG 정의 ---
 with DAG(
     dag_id="mobis_fetch_and_spark_parse_pipeline_v3",
-    start_date=pendulum.datetime(2025, 8, 22, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule=None,
     catchup=False,
     tags=["mobis", "spark", "s3", "v3-pattern"],
+    default_args=default_args,
 ) as dag:
     SPARK_CONN_ID = "conn_spark" # Airflow Spark Connection ID
     # Spark Worker에 배포된 파서 스크립트의 절대 경로

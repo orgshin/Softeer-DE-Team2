@@ -1,6 +1,7 @@
 # gongimnara_etl_dag.py
 
 from __future__ import annotations
+from datetime import timedelta
 
 import pendulum
 
@@ -13,13 +14,22 @@ from airflow.operators.empty import EmptyOperator
 # 예: dags/scripts/fetcher.py , dags/scripts/parser.py
 from official_fee.gongimnara_fetcher import run_fetcher 
 from parsers.official_fee.gongimnara_parser import run_parser
+from slack_alarm import send_slack_alert_on_failure
+
+default_args = {
+    "owner": "airflow",
+    "retries": 1,  # 실패 시 1번 재시도
+    "retry_delay": timedelta(hours=1),  # 재시도 간격은 1시간
+    "on_failure_callback": send_slack_alert_on_failure, # 실패 시 실행할 함수 지정
+}
 
 with DAG(
     dag_id="gongimnara_etl_dag",
-    start_date=pendulum.datetime(2025, 8, 20, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule="0 9 * * 1",  # 매주 월요일 오전 9시에 실행
     catchup=False,
     tags=["web-scraping", "etl", "gongimnara"],
+    default_args=default_args,
     doc_md="""
     ### 공임나라 표준 정비공임 ETL DAG
 
