@@ -50,11 +50,8 @@ x-airflow-common:
   # Comment the image line, place your Dockerfile in the directory where you placed the docker-compose.yaml
   # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
   # image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.10.2}
-  build:
-    context: .                  # <- ./dockerfile 디렉터리
-    dockerfile: ./dockerfile.airflow
   # (선택) 빌드 산출물에 태그를 달고, 다른 서비스에서도 같은 태그를 쓰고 싶다면 image도 지정
-  image: ${AIRFLOW_IMAGE_NAME:-joonlee0228/learn-apache-airflow:2.10.2-custom}
+  image: ${AIRFLOW_IMAGE_NAME:-airflow-custom}
   # build: .
   environment:
     &airflow-common-env
@@ -78,6 +75,11 @@ x-airflow-common:
     # If you want to use it, outcomment it and replace airflow.cfg with the name of your config file
     # AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
     PYTHONPATH: "/opt/airflow/dags:/opt/airflow/fetchers:/opt/bitnami/spark/work"
+    # Spark 설정을 위한 환경 변수 추가
+    SPARK_DRIVER_HOST: ${SPARK_DRIVER_HOST:-airflow-worker}
+    SPARK_DRIVER_BIND_ADDRESS: ${SPARK_DRIVER_BIND_ADDRESS:-0.0.0.0}
+    SPARK_DRIVER_PORT: ${SPARK_DRIVER_PORT:-40000}
+    SPARK_DRIVER_BLOCK_MANAGER_PORT: ${SPARK_DRIVER_BLOCK_MANAGER_PORT:-40001}
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/airflow-dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/fetchers:/opt/airflow/fetchers
@@ -159,6 +161,8 @@ services:
 
   airflow-worker:
     <<: *airflow-common
+    ports:
+      - "40000-40010:40000:40010"
     command: celery worker
     healthcheck:
       # yamllint disable rule:line-length

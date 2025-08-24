@@ -8,6 +8,7 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 from airflow.operators.python import PythonOperator
 from airflow.hooks.base import BaseHook
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator # ✨ Trigger Operator 임포트
+import os
 
 # Fetcher 함수 임포트
 from parts.mobis_fetcher import run_fetcher
@@ -32,12 +33,16 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
+    "spark.driver.host": os.getenv("SPARK_DRIVER_HOST", "airflow-worker"),
+    "spark.driver.bindAddress": os.getenv("SPARK_DRIVER_BIND_ADDRESS", "0.0.0.0"),
+    "spark.driver.port": os.getenv("SPARK_DRIVER_PORT", "40000"),
+    "spark.driver.blockManager.port": os.getenv("SPARK_DRIVER_BLOCK_MANAGER_PORT", "40001"),
 }
 
 # --- DAG 정의 ---
 with DAG(
     dag_id="mobis_fetch_and_spark_parse_pipeline_v3",
-    start_date=pendulum.datetime(2025, 8, 22, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule=None,
     catchup=False,
     tags=["mobis", "spark", "s3", "v3-pattern"],

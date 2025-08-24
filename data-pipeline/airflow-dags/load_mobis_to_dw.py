@@ -6,6 +6,7 @@ from airflow.operators.empty import EmptyOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.models.connection import Connection
 from airflow.hooks.base import BaseHook
+import os
 
 # --- Mobis 전용 설정 파일을 읽어옵니다 ---
 CONFIG_FILE_PATH = "/opt/airflow/config/parts/mobis.yaml"
@@ -25,7 +26,10 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": s3_conn.login,
     "spark.hadoop.fs.s3a.secret.key": s3_conn.password,
-    "spark.hadoop.fs.s3a.path.style.access": "true",
+    "spark.driver.host": os.getenv("SPARK_DRIVER_HOST", "airflow-worker"),
+    "spark.driver.bindAddress": os.getenv("SPARK_DRIVER_BIND_ADDRESS", "0.0.0.0"),
+    "spark.driver.port": os.getenv("SPARK_DRIVER_PORT", "40000"),
+    "spark.driver.blockManager.port": os.getenv("SPARK_DRIVER_BLOCK_MANAGER_PORT", "40001"),
 }
 
 # PostgreSQL 접속 정보 구성
@@ -33,7 +37,7 @@ pg_conn: Connection = BaseHook.get_connection(POSTGRES_CONFIG["pg_conn_id"])
 
 with DAG(
     dag_id="mobis_parquet_to_postgres_etl",
-    start_date=pendulum.datetime(2025, 8, 21, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule=None,
     catchup=False,
     tags=["mobis", "spark", "postgres", "etl"],

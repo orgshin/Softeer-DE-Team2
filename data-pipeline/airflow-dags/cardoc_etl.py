@@ -5,6 +5,7 @@ from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.hooks.base import BaseHook
+import os
 
 from repair_shop.cardoc_fetcher import run_fetcher
 
@@ -19,11 +20,15 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
+    "spark.driver.host": os.getenv("SPARK_DRIVER_HOST", "airflow-worker"),
+    "spark.driver.bindAddress": os.getenv("SPARK_DRIVER_BIND_ADDRESS", "0.0.0.0"),
+    "spark.driver.port": os.getenv("SPARK_DRIVER_PORT", "40000"),
+    "spark.driver.blockManager.port": os.getenv("SPARK_DRIVER_BLOCK_MANAGER_PORT", "40001"),
 }
 
 with DAG(
     dag_id="cardoc_etl_pipeline",
-    start_date=pendulum.datetime(2025, 8, 23, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule="0 3 * * *",
     catchup=False,
     tags=["cardoc", "etl", "spark", "s3"],

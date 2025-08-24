@@ -7,6 +7,7 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 from airflow.operators.python import PythonOperator
 from airflow.models.connection import Connection
 from airflow.hooks.base import BaseHook
+import os
 
 # 실제 fetcher 스크립트에서 run_downloader 함수를 import 합니다.
 from parts.hyunki_fetcher import run_downloader
@@ -33,13 +34,17 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
-    "spark.hadoop.fs.s3a.path.style.access": "true",
+    "spark.driver.host": os.getenv("SPARK_DRIVER_HOST", "airflow-worker"),
+    "spark.driver.bindAddress": os.getenv("SPARK_DRIVER_BIND_ADDRESS", "0.0.0.0"),
+    "spark.driver.port": os.getenv("SPARK_DRIVER_PORT", "40000"),
+    "spark.driver.blockManager.port": os.getenv("SPARK_DRIVER_BLOCK_MANAGER_PORT", "40001"),
+
 }
 
 with DAG(
     dag_id="hyunki_fetch_and_spark_parse_pipeline",
     # 2025년 8월 29일부터 매주 금요일 0시에 실행
-    start_date=pendulum.datetime(2025, 8, 29, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2025, 8, 1, tz="Asia/Seoul"),
     schedule="0 0 * * FRI", # 1주일에 한번 (매주 금요일 0시)
     catchup=False,
     tags=["hyunki", "spark", "s3", "parser"],
