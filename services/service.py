@@ -12,15 +12,24 @@ from database import get_db
 import google.generativeai as genai
 import logging
 
+# ✨ [신규 추가] DynamoDB 리포지토리 임포트
+from dynamo_repo import DynamoDBRepository
+
+
 class RepairService:
     def __init__(
         self,
         parts_repo: PartsRepository,
         quote_repo: QuoteRepository,
-        gemini_model_name: str = "gemini-2.5-flash",
+        # ✨ [신규 추가] dynamo_repo 파라미터 추가
+        dynamo_repo: DynamoDBRepository, 
+        gemini_model_name: str = "gemini-1.5-flash",
     ) -> None:
         self.parts_repo = parts_repo
         self.quote_repo = quote_repo
+        # ✨ [신규 추가] DynamoDB 리포지토리 인스턴스 할당
+        self.dynamo_repo = dynamo_repo
+
         # 상세 정보를 포함한 공임비 리스트를 로드합니다.
         self.fee_standard_list = self.parts_repo.get_all_fees()
         # 상세 정보 전체를 key-value로 저장합니다 (key는 label).
@@ -35,7 +44,8 @@ class RepairService:
             except Exception as e:
                 print(f"Gemini 모델 초기화 실패: {e}")
                 self.gemini_model = None
-
+    
+    # _analyze_item, _match_fees_with_gemini 메서드는 변경 없음
     def _analyze_item(
         self,
         value: int,
@@ -141,11 +151,13 @@ class RepairService:
         except Exception as e:
             print(f"Gemini 공임 매칭 중 오류 발생: {e}")
             return {name: None for name in input_fee_names}
-
+    
+    # ✨ [수정] analyze_and_save_quote 메서드 수정
     def analyze_and_save_quote(self, data: Dict[str, Any]) -> Dict[str, Any]:
         if not self.gemini_model:
             raise HTTPException(status_code=500, detail="Gemini API is not configured or available.")
 
+        # --- (기존 분석 로직은 동일) ---
         parts: List[Dict[str, Any]] = data.get("parts", [])
         fees: List[Dict[str, Any]] = data.get("fee", [])
         
@@ -190,14 +202,31 @@ class RepairService:
         }
         
         quote_id = str(uuid.uuid4())
+        
+        # --- ✨ [신규 추가] DynamoDB 저장 로직 ---
+        # 1. 사용자 원본 입력 저장
+        self.dynamo_repo.save_user_input(quote_id, data)
+        # 2. 분석 결과 저장 (API 최종 반환 형태와 동일하게)
+        final_response = {"quote_id": quote_id, "analysis": result}
+        self.dynamo_repo.save_analysis_result(quote_id, final_response)
+        # ----------------------------------------
+        
+        # 기존 PostgreSQL 저장 로직
         self.quote_repo.save(quote_id, result)
-        return {"quote_id": quote_id, "analysis": result}
+        
+        return final_response
 
     def compare_quotes(self, quote_ids: List[str]) -> Dict[str, Any]:
         raise NotImplementedError("compare_quotes is not implemented for DB repository yet.")
 
-# --- DI 헬퍼 ---
+# --- ✨ [수정] DI 헬퍼 ---
+# 서비스가 생성될 때마다 DynamoDB 리포지토리도 함께 생성하여 주입합니다.
 def get_service(db: Session = Depends(get_db)) -> RepairService:
     parts_repo = PartsRepository(db)
     quote_repo = QuoteRepository(db)
-    return RepairService(parts_repo=parts_repo, quote_repo=quote_repo)
+    dynamo_repo = DynamoDBRepository() # DynamoDB 리포지토리 인스턴스 생성
+    return RepairService(
+        parts_repo=parts_repo, 
+        quote_repo=quote_repo, 
+        dynamo_repo=dynamo_repo # 서비스에 주입
+    )
