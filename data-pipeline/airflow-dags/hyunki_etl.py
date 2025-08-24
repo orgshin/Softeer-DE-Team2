@@ -32,12 +32,6 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
-    "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
-    "spark.hadoop.fs.s3a.path.style.access": "true",
-    "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
-    "spark.hadoop.fs.s3a.attempts.maximum": "1",
-    "spark.hadoop.fs.s3a.connection.establish.timeout": "5000",
-    "spark.hadoop.fs.s3a.connection.timeout": "10000"
 }
 
 # ⚙️ 4. 모든 Task에 적용될 기본 인자(default_args) 설정

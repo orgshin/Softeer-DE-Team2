@@ -27,8 +27,6 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": s3_conn.login,
     "spark.hadoop.fs.s3a.secret.key": s3_conn.password,
-    "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
-    "spark.hadoop.fs.s3a.path.style.access": "true",
 }
 default_args = {
     "owner": "airflow",

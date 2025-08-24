@@ -21,8 +21,6 @@ SPARK_S3_CONF = {
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.access.key": conn.login,
     "spark.hadoop.fs.s3a.secret.key": conn.password,
-    "spark.hadoop.fs.s3a.endpoint": S3_CONFIG.get("s3_endpoint", "s3.amazonaws.com"),
-    "spark.hadoop.fs.s3a.path.style.access": "true",
 }
 
 default_args = {

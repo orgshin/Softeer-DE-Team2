@@ -27,25 +27,27 @@ fetcher:
     max_scroll_steps: 1800
     shop_gap: 2.0
 
-# Parser (HTML에서 데이터 추출) 관련 설정
+# Parser (HTML data extraction) settings
 parser:
-  # 정비소 기본 정보 셀렉터
-  shop_name_css_selectors: # 키 이름 변경
+  # CSS selectors for main shop info
+  shop_name_css_selectors:
     - "div.items-center.justify-center span.font-bold"
     - "h1"
-  address_section_css_selector: 'section:has(> *:contains("위치"))' # 키 이름 및 값 변경
+  # BeautifulSoup does not support :has, this will need to be handled in the code
+  address_section_identifier_text: "위치" 
   
-  # 리뷰 정보 셀렉터
-  review_tab_css_selector: "button[role='tab']:contains('후기')" # 키 이름 및 값 변경
-  review_panel_css_selector: "div[role='tabpanel']" # 키 이름 및 값 변경
+  # CSS selectors for review info
+  review_tab_xpath: "//button[@role='tab' and contains(., '후기')]"
+  review_panel_xpath: "//div[@role='tabpanel']" # For Selenium, will be adapted for BS4
+  review_panel_css_selector: "div[role='tabpanel'][data-state='active']" # For BS4
   review_card_css: "div.py-5.space-y-4"
   
-  # 리뷰 카드 내부 셀렉터 (대부분 CSS였으므로 유지)
+  # Selectors inside a review card
   review_card_selectors:
     vehicle_title: ".text-sm.font-bold"
     rating_svg: "svg.w-3.h-3"
     date: ".text-sm.text-gray-500.font-medium"
-    work_meta_container_css: "div.space-x-1" # 클래스 이름으로 명확화
-    tags_container_css: "div.flex-wrap"      # 클래스 이름으로 명확화
+    work_meta_container_css: "div.space-x-1"
+    tags_container_css: "div.flex-wrap"
     content_css: ".whitespace-pre-wrap"
     reply_container_css: ".w-full.p-4.rounded-2xl.bg-blue-gray-50"
