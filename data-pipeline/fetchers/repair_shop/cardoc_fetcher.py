@@ -16,6 +16,76 @@ from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
 log = logging.getLogger(__name__)
 
+import unicodedata
+import re
+
+def extract_address_text(driver, wait_sec: int = 10) -> str:
+    """
+    기본 탭(업체 정보)에서 주소 텍스트를 추출한다.
+    - 우선 '위치' 텍스트 섹션을 기준으로 다음 첫 번째 텍스트 블록을 찾음
+    - 실패 시, 알려준 span 클래스 조합으로도 재시도
+    """
+    try:
+        WebDriverWait(driver, wait_sec).until(
+            EC.presence_of_element_located((By.XPATH, "//*[contains(text(),'위치')]"))
+        )
+        # '위치' 다음에 오는 첫 번째 주소성 텍스트 노드
+        # (span/p 등 첫 텍스트 엘리먼트)
+        cand = driver.find_elements(
+            By.XPATH,
+            "//*[contains(text(),'위치')]/following::*[self::span or self::p or self::div][normalize-space()][1]"
+        )
+        if cand:
+            addr = cand[0].text.strip()
+            if addr:
+                return addr
+    except Exception:
+        pass
+
+    # 백업 경로: 알려준 클래스 조합으로 검색
+    try:
+        el = WebDriverWait(driver, wait_sec).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "span.font-medium.underline.flex-1.break-all.line-clamp-1")
+            )
+        )
+        addr = (el.text or "").strip()
+        return addr
+    except Exception:
+        return ""
+
+
+def slugify_for_s3(name: str, max_len: int = 150) -> str:
+    """
+    S3 key에 쓰기 안전한 슬러그 생성.
+    - 공백 -> '_'
+    - 슬래시/역슬래시/물음표/해시 등 위험문자 제거
+    - 제어문자 제거
+    - 너무 길면 컷
+    """
+    if not name:
+        return ""
+
+    # 정규화
+    name = unicodedata.normalize("NFKC", name).strip()
+
+    # S3에 위험한 문자 제거
+    # (/, \, ?, #, [, ], {, }, <, >, :, ;, |, ", ', *, %, $, 등)
+    name = re.sub(r"[\/\\\?\#\[\]\{\}\<\>\:\;\|\\""'*\%\$`]", "", name)
+
+    # 제어문자 제거
+    name = "".join(ch for ch in name if ch.isprintable())
+
+    # 공백류 -> _
+    name = re.sub(r"\s+", "_", name)
+
+    # 너무 길면 컷
+    if len(name) > max_len:
+        name = name[:max_len].rstrip("_")
+
+    return name
+
+
 # ==============================================================================
 # 1. 드라이버 및 공통 유틸리티
 # ==============================================================================
@@ -235,7 +305,7 @@ def focus_and_keyscroll_panel(driver, panel, config):
     log.info(f"리뷰 스크롤 완료: {last_cnt}개 로드됨")
     return last_cnt
 # ▲▲▲ [핵심 복원] ▲▲▲
-
+import json
 # ==============================================================================
 # 4. Airflow PythonOperator가 호출할 메인 실행 함수
 # ==============================================================================
@@ -262,33 +332,72 @@ def run_fetcher(config_path: str, ds_nodash: str):
     log.info("=== 2단계: 각 URL 방문 및 최종 HTML 저장 시작 ===")
     driver = build_driver(config)
     try:
-        # 테스트를 위해 하나의 URL만 처리하도록 잠시 수정
+        # 테스트 고정
         all_shop_urls = ["https://repair.cardoc.co.kr/shops/0152d4a0-0bd1-7000-8000-0000000000e5"]
+
         for i, url in enumerate(all_shop_urls, 1):
             shop_id = extract_shop_id(url)
             log.info(f"({i}/{len(all_shop_urls)}) 처리 중: {url}")
+
             try:
                 driver.get(url)
+
+                # 2-1) 후기 탭 건드리기 전에, 기본 탭(업체 정보)에서 '주소' 먼저 추출
+                addr_text = extract_address_text(
+                    driver, wait_sec=config['fetcher']['timeouts']['wait']
+                )
+                addr_slug = slugify_for_s3(addr_text)
+
+                # 2-2) 이제 후기 탭으로 전환/스크롤(기존 로직 유지)
                 panel = get_reviews_panel(driver, config)
                 if panel:
-                    click_all_filter_if_exists(config, panel, driver) # 필터 클릭 로직도 복원
+                    click_all_filter_if_exists(config, panel, driver)
                     focus_and_keyscroll_panel(driver, panel, config)
                 else:
                     log.info("    리뷰 패널이 없어 스크롤을 건너뜁니다.")
-                
+
+                # 2-3) HTML 스냅샷 저장 (주소 기반 파일명)
+                # 주소가 있으면: {shop_id}__{addr}.html
+                # 없으면: {shop_id}.html
+                if addr_slug:
+                    file_name = f"{shop_id}__{addr_slug}.html"
+                else:
+                    file_name = f"{shop_id}.html"
+
+                s3_key = f"{s3_prefix}/{file_name}"
                 html_content = driver.page_source
-                s3_key = f"{s3_prefix}/{shop_id}.html"
+
                 s3_hook.load_string(
-                    string_data=html_content, key=s3_key,
-                    bucket_name=s3_cfg['source_bucket'], replace=True
+                    string_data=html_content,
+                    key=s3_key,
+                    bucket_name=s3_cfg['source_bucket'],
+                    replace=True
                 )
                 log.info(f"    -> S3 저장 완료: s3://{s3_cfg['source_bucket']}/{s3_key}")
+
+                # (선택) 주소 매핑 sidecar JSON도 함께 저장하면 Parser가 합치기 쉬움
+                # ex) s3://.../{shop_id}__meta.json
+                meta_key = f"{s3_prefix}/{shop_id}__meta.json"
+                meta_json = {
+                    "shop_id": shop_id,
+                    "url": url,
+                    "address": addr_text
+                }
+                s3_hook.load_string(
+                    string_data=json.dumps(meta_json, ensure_ascii=False),
+                    key=meta_key,
+                    bucket_name=s3_cfg['source_bucket'],
+                    replace=True
+                )
+                log.info(f"    -> 메타 저장 완료: s3://{s3_cfg['source_bucket']}/{meta_key}")
+
                 time.sleep(config['fetcher']['timeouts']['shop_gap'])
 
             except Exception as e:
                 log.error(f"URL 처리 실패: {url}", exc_info=True)
+
     finally:
         driver.quit()
-        
+
     log.info("모든 HTML 파일 저장을 완료했습니다.")
     return s3_prefix

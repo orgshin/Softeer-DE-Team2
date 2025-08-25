@@ -1,8 +1,11 @@
 test/
 include/
-data-pipeline/logs/
-__pycache__/
 logs/
 *.log
+__pycache__/
 .env
 .DS_Store
+data-pipeline/logs/
+data-pipeline/spark_jobs/spark-events/
+data-pipeline/spark_jobs/spark-conf/
+data-pipeline/spark_jobs/working-dir/
