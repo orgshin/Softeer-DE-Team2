@@ -7,3 +7,5 @@ pandas
 lxml
 webdriver_manager
 selenium
+torch
+transformers
