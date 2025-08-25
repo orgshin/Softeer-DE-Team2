@@ -1,0 +1,18 @@
+# ======================================================
+# 모든 부품 데이터 통합(Merge) 파이프라인 설정
+# - 공통 설정은 'common/*.yaml' 파일에서 관리됩니다.
+# ======================================================
+
+# S3 경로 설정
+s3:
+  # 데이터가 저장된 S3 버킷 이름 (공통 설정의 dest_bucket을 사용)
+  base_bucket: "team2-html-out"
+  # 처리할 데이터의 최상위 경로 (prefix)
+  base_prefix: "parts"
+
+# 데이터베이스 테이블 설정
+postgres:
+  # 1차 병합/정제된 데이터가 저장될 테이블 이름
+  parts_table_name: "parts_merged"
+  # 2차 집계된 데이터가 저장될 테이블 이름
+  avg_price_table_name: "parts_avg_price"

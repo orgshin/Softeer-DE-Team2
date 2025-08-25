@@ -1,14 +1,14 @@
-# S3 및 AWS 연결 설정
-s3:
-  aws_conn_id: "conn_s3"
-  source_bucket: "team2-html-raw"   # HTML 원본 파일이 저장될 버킷
-  dest_bucket: "team2-html-out"     # Parquet 결과물이 저장될 버킷
-  # 로컬 S3 호환 스토리지(예: MinIO) 사용 시 엔드포인트 URL
-  s3_endpoint: "http://minio:9000" 
-  prefix: "parts/mobis_parts"
+# ======================================================
+# Mobis 부품 ETL 파이프라인 설정
+# - 공통 설정은 'common/*.yaml' 파일에서 관리됩니다.
+# ======================================================
 
+# S3 경로 설정 (버킷은 공통 설정 사용)
+s3:
+  prefix: "parts/mobis_parts" # 데이터 저장 경로
+
+# 데이터베이스 테이블 설정
 postgres:
-  pg_conn_id: "conn_postgres"
   table_name: "mobis_parts"
 
 # Fetcher (크롤러) 설정
@@ -82,22 +82,20 @@ fetcher:
     - "파이프"
     - "덕트"
     - "커버"
-  
+
   timeouts:
-    idle_timeout: 25
+    idle_timeout: 25 # Selenium 작업 대기 시간
   cooldowns:
-    kw_cooldown: [2.0, 4.0]
-    page_pause: [1.2, 1.8]
-  
+    kw_cooldown: [2.0, 4.0]  # 키워드 변경 시 대기 시간
+    page_pause: [1.2, 1.8]   # 페이지 이동 시 대기 시간
+
+  # Mobis 스크래핑에 사용할 특정 User-Agent
   chrome_options:
-    headless: true
     user_agents:
       - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    disable_automation_flags: true
 
 # Parser (Spark) 설정
 parser:
-  # 파싱에 필요한 CSS 셀렉터 정보
   selectors:
     table_wrap: "#table-wrap div.table-list.sp-table"
     row_group: "ul.table-d"

@@ -1,0 +1,14 @@
+# ======================================================
+# 데이터베이스 공통 설정
+# - PostgreSQL 접속 정보 등
+# ======================================================
+
+postgres:
+  # Airflow에 등록된 PostgreSQL Connection ID
+  pg_conn_id: "conn_postgres"
+
+  # 테이블에 데이터를 쓸 때의 기본 동작 방식 ('overwrite', 'append' 등)
+  write_mode: overwrite
+
+  # DB 연결 시 SSL 모드 사용 여부
+  sslmode: require

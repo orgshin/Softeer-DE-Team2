@@ -12,9 +12,9 @@ from airflow.operators.empty import EmptyOperator
 # fetcher.py와 parser.py의 run_fetcher, run_parser 함수를 import
 # 실제 환경에서는 이 스크립트들이 Airflow의 PYTHONPATH에 포함되어야 합니다.
 # 예: dags/scripts/fetcher.py , dags/scripts/parser.py
-from official_fee.gongimnara_fetcher import run_fetcher 
+from fetchers.official_fee.gongimnara_fetcher import run_fetcher 
 from parsers.official_fee.gongimnara_parser import run_parser
-from slack_alarm import send_slack_alert_on_failure
+from utils.slack_alarm import send_slack_alert_on_failure
 
 default_args = {
     "owner": "airflow",

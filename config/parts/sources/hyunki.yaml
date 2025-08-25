@@ -1,19 +1,12 @@
 # ======================================================
-# Hyunki 부품 ETL 파이프라인 설정 파일
+# Hyunki 부품 ETL 파이프라인 설정
+# - 공통 설정은 'common/*.yaml' 파일에서 관리됩니다.
 # ======================================================
 
-# S3 경로 설정
+# S3 경로 설정 (버킷은 공통 설정 사용)
 s3:
-  # Airflow에 설정된 AWS Connection ID
-  aws_conn_id: "conn_s3"
-
-  # 원본 HTML 파일이 저장된 위치
-  source_bucket: "team2-html-raw"
-  source_prefix: "parts/hyunki"
-
-  # 최종 Parquet 파일이 저장될 위치
-  dest_bucket: "team2-html-out"
-  dest_prefix: "parts/hyunki"
+  source_prefix: "parts/hyunki" # 원본 HTML 저장 경로
+  dest_prefix: "parts/hyunki"   # Parquet 결과물 저장 경로
 
 # 웹 스크래핑(Fetcher) 관련 설정
 fetcher:
@@ -32,15 +25,9 @@ fetcher:
     max_pages: 1 # 테스트를 위해 1로 설정, 실제 운영 시 조정
     pause_between_categories_sec: 2.0
   requests:
-    timeout: 20
-    retries: 3
-    backoff_base_sec: 1.8
+    # hyunki.com 스크래핑 시 필요한 특정 헤더 (공통 헤더에 추가됨)
     headers:
-      Accept-Language: "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
       Referer: "https://hyunkistore.com/"
-    user_agents:
-      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
   delays:
     per_page_min_sec: 8.0
     per_page_max_sec: 12.0
@@ -59,5 +46,5 @@ parser:
       - ".price_all .custom"
     hidden_class: "displaynone"
   regex:
-    part_code: "\\(([^)]+)\\)\\s*$"
-    price: "[\\d,]+"
+    part_code: "\\(([^)]+)\\)\\s*$" # 괄호 안의 부품 코드 추출
+    price: "[\\d,]+"              # 가격(숫자, 콤마) 추출

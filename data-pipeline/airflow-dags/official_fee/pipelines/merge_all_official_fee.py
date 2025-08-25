@@ -8,7 +8,7 @@ from airflow.operators.empty import EmptyOperator
 # 방금 작성한 Python 스크립트에서 함수를 import 합니다.
 # 이 파일이 Airflow의 PYTHONPATH에 포함된 디렉토리에 있어야 합니다. (e.g., dags/scripts/)
 from transformation.merge_official_fee import merge_s3_parquet_to_postgres
-from slack_alarm import send_slack_alert_on_failure
+from utils.slack_alarm import send_slack_alert_on_failure
 
 # --- DAG 파일 상단에서 설정 파일을 한번만 읽습니다 ---
 # ✨ 수정: 설정 파일 경로를 gongimnara.yaml로 변경

@@ -74,7 +74,7 @@ x-airflow-common:
     # The following line can be used to set a custom config file, stored in the local config folder
     # If you want to use it, outcomment it and replace airflow.cfg with the name of your config file
     # AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
-    PYTHONPATH: "/opt/airflow/dags:/opt/airflow/fetchers:/opt/bitnami/spark/work:/opt/airflow/plugins"
+    PYTHONPATH: "/opt/airflow:/opt/bitnami/spark/work"
     # Spark 설정을 위한 환경 변수 추가
     SPARK_DRIVER_HOST: ${SPARK_DRIVER_HOST:-airflow-worker}
     SPARK_DRIVER_BIND_ADDRESS: ${SPARK_DRIVER_BIND_ADDRESS:-0.0.0.0}
@@ -84,7 +84,7 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/airflow-dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/fetchers:/opt/airflow/fetchers
     - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/logs:/opt/airflow/logs
-    - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/plugins:/opt/airflow/plugins
+    - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/utils:/opt/airflow/utils
     - ${AIRFLOW_PROJ_DIR:-.}/data-pipeline/spark_jobs:/opt/bitnami/spark/work
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
   user: "${AIRFLOW_UID:-50000}:0"

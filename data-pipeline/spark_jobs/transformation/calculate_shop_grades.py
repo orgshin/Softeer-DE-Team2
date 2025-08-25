@@ -1,19 +1,20 @@
-# /opt/bitnami/spark/work/transformation/repair_shop_review_grade.py
-# -*- coding: utf-8 -*-
-"""
-S3 Parquet(리뷰) → BERT 분석 → 표준 CSV 매칭 → 공업사등급 → PostgreSQL 적재
-사용 예:
-spark-submit \
-  --packages org.apache.hadoop:hadoop-aws:3.3.4,org.postgresql:42.7.4 \
-  repair_shop_review_grade.py \
-  --s3-bucket team2_html_out \
-  --standards-key standards/전국자동차정비업체표준데이터.csv \
-  --standards-encoding cp949 \
-  --pg-host mydb.example.com --pg-port 5432 --pg-db analytics \
-  --pg-user myuser --pg-password mypass \
-  --pg-table public.shop_review_with_grade \
-  --pg-sslmode require --pg-mode overwrite
-"""
+# ==============================================================================
+# etl_pipelines/repair_shop/transformation/calculate_shop_grades.py
+#
+# S3의 정비소 리뷰 Parquet과 표준 데이터를 결합하여 최종 등급을 계산하고 PostgreSQL에 저장
+# - 입력:
+#   1. S3의 정비소 리뷰 Parquet 파일들
+#   2. S3의 전국 자동차 정비업체 표준 데이터 CSV 파일
+# - 처리:
+#   1. HuggingFace BERT 모델을 사용하여 리뷰 텍스트를 분석합니다.
+#      - 긍정/부정 리뷰 분류
+#      - 리뷰 내용과 키워드 간의 의미적 유사도를 계산하여 카테고리별 통계 생성
+#   2. 정제된 정비소명과 주소를 기준으로 표준 데이터와 조인(Join)하여 '공업사등급'을 매칭합니다.
+#      - 1차: 정규화된 이름 기준 매칭
+#      - 2차: 정규화된 주소 기준 매칭 (1차 실패 시)
+#      - 3차: Levenshtein 거리 기반 퍼지(Fuzzy) 매칭 (2차 실패 시)
+# - 출력: PostgreSQL의 최종 정비소 등급 분석 테이블 (Overwrite 또는 Append 모드)
+# ==============================================================================
 import argparse
 import os
 import re

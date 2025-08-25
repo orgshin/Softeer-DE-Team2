@@ -1,0 +1,14 @@
+# ======================================================
+# AWS 공통 설정
+# - Airflow Connection ID, S3 버킷 정보 등
+# ======================================================
+
+s3:
+  # Airflow에 등록된 AWS Connection ID
+  aws_conn_id: "conn_s3"
+
+  # HTML 원본 파일이 저장되는 소스 버킷
+  source_bucket: "team2-html-raw"
+
+  # Parquet 등 처리 결과물이 저장되는 대상 버킷
+  dest_bucket: "team2-html-out"

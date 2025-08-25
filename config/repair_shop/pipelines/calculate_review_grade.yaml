@@ -1,0 +1,27 @@
+# ======================================================
+# 정비소 리뷰 등급 계산 Spark 작업 설정
+# - 공통 설정은 'common/*.yaml' 파일에서 관리됩니다.
+# ======================================================
+
+# S3 경로 설정
+s3:
+  # 데이터가 저장된 S3 버킷 (공통 설정의 dest_bucket을 사용)
+  base_bucket: team2-html-out
+  # 등급 계산 기준 파일 경로
+  standards_key: standards/car_repair_shop_standards.csv
+
+# 데이터베이스 테이블 설정
+postgres:
+  table_name: shop_review_with_grade
+
+# Spark 작업 관련 설정
+spark:
+  # HuggingFace 트랜스포머 모델 캐시 디렉토리
+  transformers_cache: /opt/airflow/.cache/hf
+  executor_cores: 2
+  executor_memory: 4g
+  driver_memory: 6g
+  num_executors: 2
+  # 추가 Spark 구성
+  extra_conf:
+    spark.sql.shuffle.partitions: "200"
